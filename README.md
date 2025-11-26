@@ -3,6 +3,13 @@
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange?logo=cloudflare)](https://workers.cloudflare.com/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+![Dark Mode](screenshots/screenshots_dark.png) 
+<p align="center">Dark Mode screenshot</p>
+
+![Dark Mode](screenshots/screenshots_light.png)
+<p align="center">Light Mode screenshot</p>
+
+
 **[English](#english) | [中文说明](#中文说明)**
 
 ---
