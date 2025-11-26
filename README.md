@@ -37,12 +37,13 @@ Keep track of your furry friend's health with interactive charts, dark mode, mul
 
 #### 1. Create a KV Namespace
 1.  Log in to the [Cloudflare Dashboard](https://dash.cloudflare.com/).
-2.  Go to **Workers & Pages** -> **KV**.
+2.  On the left sidebar, expand **Storage & Databases** and click **Workers KV**.
 3.  Click **Create a Namespace**, name it `CAT_WEIGHT_KV` (or any name you prefer), and click **Add**.
 
 #### 2. Create a Worker
-1.  Go to **Workers & Pages** -> **Overview** -> **Create Application** -> **Create Worker**.
-2.  Name it (e.g., `cat-tracker`) and click **Deploy**.
+1.  On the left sidebar, expand **Compute (Workers & Pages)** (or "Compute & AI") and click **Workers & Pages**.
+2.  Click **Create Application** -> **Create Worker**.
+3.  Name it (e.g., `cat-tracker`) and click **Deploy**.
 
 #### 3. Configure Bindings & Variables (Crucial Step!)
 
@@ -108,12 +109,13 @@ Manage your data in the Admin Dashboard (login required).
 
 #### 1. 创建 KV 数据库
 1.  登录 [Cloudflare 控制台](https://dash.cloudflare.com/)。
-2.  进入 **Workers & Pages** -> **KV**。
+2.  在左侧侧边栏，展开 **存储和数据库 (Storage & Databases)**，点击 **Workers KV**。
 3.  点击 **创建命名空间 (Create a Namespace)**，命名为 `CAT_WEIGHT_KV`（名字随意），点击添加。
 
 #### 2. 创建 Worker
-1.  进入 **Workers & Pages** -> **概述 (Overview)** -> **创建应用程序** -> **创建 Worker**。
-2.  起个名字（例如 `cat-tracker`），点击 **部署 (Deploy)**。
+1.  在左侧侧边栏，展开 **计算和 AI (Compute & AI)**，点击 **Workers 和 Pages**。
+2.  点击 **创建应用程序** -> **创建 Worker**。
+3.  起个名字（例如 `cat-tracker`），点击 **部署 (Deploy)**。
 
 #### 3. 配置绑定与变量（关键步骤！）
 
