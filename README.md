@@ -1,14 +1,12 @@
-# 🐱 Cat Weight Tracker | 猫咪体重追踪
+# 🐱 Cat Weight Tracker | 猫咪体重本
 
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange?logo=cloudflare)](https://workers.cloudflare.com/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ![Dark Mode](screenshots/screenshots_dark.png) 
 <p align="center">Dark Mode screenshot</p>
-
 ![Dark Mode](screenshots/screenshots_light.png)
 <p align="center">Light Mode screenshot</p>
-
 
 **[English](#english) | [中文说明](#中文说明)**
 
@@ -28,41 +26,55 @@ Keep track of your furry friend's health with interactive charts, dark mode, and
 * **Dark/Light Mode**: Toggle between a sunny day theme and a midnight blue theme. Persistence supported.
 * **PWA Support**: Install it on your phone! Supports "Add to Home Screen" with a native app-like experience (no browser address bar).
 * **Multi-Cat Support**: Manage weight records for multiple cats in one place.
+* **Import & Export**: Full CSV support. Backup your data or bulk import records from other apps.
 * **Secure**: Basic Authentication (Admin/Password) protected management interface.
-* **Data Ownership**: 100% of your data lives in your Cloudflare KV. Export to CSV anytime.
 
 ### 🚀 Quick Deployment
 
 #### 1. Create a KV Namespace
 1.  Log in to the [Cloudflare Dashboard](https://dash.cloudflare.com/).
 2.  Go to **Workers & Pages** -> **KV**.
-3.  Create a namespace named `CAT_WEIGHT_KV` (or any name you prefer).
+3.  Click **Create a Namespace**, name it `CAT_WEIGHT_KV` (or any name you prefer), and click **Add**.
 
 #### 2. Create a Worker
 1.  Go to **Workers & Pages** -> **Overview** -> **Create Application** -> **Create Worker**.
 2.  Name it (e.g., `cat-tracker`) and click **Deploy**.
 
-#### 3. Configure Variables (Crucial Step!)
-Go to your Worker's **Settings** -> **Variables**.
+#### 3. Configure Bindings & Variables (Crucial Step!)
 
-**A. KV Namespace Bindings:**
-* Click **Add binding**.
-* **Variable name**: `CAT_KV` (Must be exactly this!).
-* **KV Namespace**: Select the namespace you created in Step 1.
+**A. Bind KV Namespace:**
+1.  Go to your Worker's dashboard and click the **Bindings** tab (in the top menu).
+2.  Scroll down to **KV Namespace Bindings**.
+3.  Click **Add** (or **Connect**).
+    * **Variable name**: `CAT_KV` (**Must be exactly this!**).
+    * **KV Namespace**: Select the namespace you created in Step 1.
+4.  Click **Deploy** to save.
 
-**B. Environment Variables:**
-Add the following variables:
-* `ADMIN_USER`: Your login username (e.g., `admin`).
-* `ADMIN_PASS`: Your login password.
-* `CAT_NAMES`: Names of your cats, separated by commas (e.g., `Luna, Oreo`).
+**B. Set Environment Variables:**
+1.  Click the **Settings** tab (top menu) -> **Variables**.
+2.  Scroll to **Environment Variables** and click **Add variable**.
+3.  Add the following variables:
+    * `ADMIN_USER`: Your login username (e.g., `admin`).
+    * `ADMIN_PASS`: Your login password.
+    * `CAT_NAMES`: Names of your cats, separated by commas (e.g., `Luna, Oreo`).
+4.  Click **Deploy** to save.
 
 #### 4. Deploy Code
-1.  Click **Edit code**.
+1.  Click the **Edit code** button (usually top right).
 2.  Copy the content of `worker.js` from this repository.
-3.  Paste it into the Cloudflare editor (replace everything).
+3.  Paste it into the Cloudflare editor (replace the original "Hello World" code).
 4.  Click **Deploy**.
 
 🎉 **Done!** Visit your worker URL to start tracking.
+
+### 📂 Data Management (Import/Export)
+
+You can manage your data in the Admin Dashboard (login required).
+
+* **Export**: Click **📥 Export CSV** to download all records for the currently selected cat.
+* **Import**: Click **📤 Import CSV** to upload bulk data.
+    * **Format**: The CSV should preferably be in `Date,Weight,Name,Note` format (standard export format).
+    * **Logic**: The system uses "Date + Cat Name" as a unique key. If a record with the same date exists, it will be **overwritten/updated**; otherwise, it will be added.
 
 ### 📱 Mobile Usage (PWA)
 1.  Open the website in Safari (iOS) or Chrome (Android).
@@ -85,40 +97,55 @@ Add the following variables:
 * **深色/浅色模式**：支持手动切换日间/夜间模式，并自动保存偏好。
 * **PWA 支持**：支持“添加到主屏幕”，在手机上拥有原生 App 般的全面屏体验。
 * **多猫管理**：支持同时记录多只猫咪的数据，一键切换。
-* **安全隐私**：管理界面由密码保护，数据存储在您私有的 KV 数据库中，支持 CSV 导出。
+* **导入导出**：支持导出 CSV 备份，也支持批量导入数据（智能合并去重）。
+* **安全隐私**：管理界面由密码保护，数据存储在您私有的 KV 数据库中。
 
 ### 🚀 快速部署指南
 
 #### 1. 创建 KV 数据库
 1.  登录 [Cloudflare 控制台](https://dash.cloudflare.com/)。
 2.  进入 **Workers & Pages** -> **KV**。
-3.  点击 **Create a Namespace**，命名为 `CAT_WEIGHT_KV`（名字随意）。
+3.  点击 **创建命名空间 (Create a Namespace)**，命名为 `CAT_WEIGHT_KV`（名字随意），点击添加。
 
 #### 2. 创建 Worker
-1.  进入 **Workers & Pages** -> **Overview** -> **Create Application** -> **Create Worker**。
-2.  起个名字（例如 `cat-tracker`），点击 **Deploy**。
+1.  进入 **Workers & Pages** -> **概述 (Overview)** -> **创建应用程序** -> **创建 Worker**。
+2.  起个名字（例如 `cat-tracker`），点击 **部署 (Deploy)**。
 
-#### 3. 配置变量（关键步骤！）
-进入你刚才创建的 Worker 的 **Settings (设置)** -> **Variables (变量)** 页面。
+#### 3. 配置绑定与变量（关键步骤！）
 
-**A. 绑定 KV 命名空间 (KV Namespace Bindings):**
-* 点击 **Add binding**。
-* **Variable name (变量名)**: 填写 `CAT_KV` (**必须完全一致，不能改**)。
-* **KV Namespace**: 选择第 1 步创建的数据库。
+**A. 绑定 KV 数据库:**
+1.  进入你的 Worker 详情页，点击顶部菜单栏的 **绑定 (Bindings)**。
+2.  向下滑动找到 **KV 命名空间绑定 (KV Namespace Bindings)** 区域。
+3.  点击 **添加 (Add)** 或 **连接 (Connect)**。
+    * **变量名称 (Variable name)**: 填写 `CAT_KV` (**必须完全一致，不能改**)。
+    * **KV 命名空间**: 选择第 1 步创建的数据库。
+4.  点击 **部署 (Deploy)** 保存设置。
 
-**B. 添加环境变量 (Environment Variables):**
-点击 Add variable 添加以下变量：
-* `ADMIN_USER`: 后台登录用户名（例如 `admin`）。
-* `ADMIN_PASS`: 后台登录密码。
-* `CAT_NAMES`: 你猫咪的名字，多只猫用英文逗号分隔（例如 `汤圆,麻薯`）。
+**B. 添加环境变量:**
+1.  点击顶部菜单栏的 **设置 (Settings)** -> **变量 (Variables)**。
+2.  找到 **环境变量 (Environment Variables)** 区域，点击 **添加变量**。
+3.  添加以下变量：
+    * `ADMIN_USER`: 后台登录用户名（例如 `admin`）。
+    * `ADMIN_PASS`: 后台登录密码。
+    * `CAT_NAMES`: 你猫咪的名字，多只猫用英文逗号分隔（例如 `汤圆,麻薯`）。
+4.  点击 **部署 (Deploy)** 保存设置。
 
 #### 4. 部署代码
-1.  点击右上角的 **Edit code (编辑代码)**。
+1.  点击右上角的 **编辑代码 (Edit code)**。
 2.  复制本项目 `worker.js` 的全部代码。
-3.  粘贴到 Cloudflare 编辑器中（覆盖原有代码）。
-4.  点击 **Deploy (部署)**。
+3.  粘贴到 Cloudflare 编辑器中（覆盖原有的 Hello World 代码）。
+4.  点击 **部署 (Deploy)**。
 
 🎉 **大功告成！** 访问你的 Worker 域名即可开始使用。
+
+### 📂 数据导入与导出
+
+进入后台管理界面后，您可以在底部找到数据操作区：
+
+* **导出 (Export)**：点击 **📥 导出 CSV** 可下载当前猫咪的所有记录。
+* **导入 (Import)**：点击 **📤 导入 CSV** 可批量上传数据。
+    * **文件格式**：推荐使用本工具导出的标准格式 `日期,体重,猫咪,备注`。如果 CSV 中没有猫咪名字列，数据将默认归属给当前选中的猫咪。
+    * **合并逻辑**：系统基于“日期+猫咪名字”判断。如果同一天已有记录，新导入的数据会**覆盖**旧数据；如果是新日期，则会新增记录。
 
 ### 📱 手机端使用 (PWA)
 1.  在手机 Safari (iOS) 或 Chrome (Android) 中打开网站。
@@ -127,11 +154,11 @@ Add the following variables:
 
 ### 🛠️ 常见问题 (FAQ)
 
-**Q: 部署后显示 Error 1101?**
-A: 这通常是因为 KV 数据库没有绑定成功。请再次检查 Settings -> Variables -> KV Namespace Bindings 中的变量名是否严格为 `CAT_KV`。
+**Q: 部署后显示 "程序运行出错" 或 Error 1101?**
+A: 这通常是因为 KV 数据库没有绑定成功。请再次检查 **绑定 (Bindings)** 菜单下，KV 绑定的变量名是否严格填写为 `CAT_KV` (全大写)。
 
-**Q: 如何备份数据？**
-A: 登录后台管理页，点击底部的 "📥 导出 CSV" 按钮即可将数据下载到本地。
+**Q: 导入 CSV 失败？**
+A: 请确保 CSV 文件是以 UTF-8 编码保存的，且至少包含 `日期` 和 `体重` 两列。
 
 ---
 
