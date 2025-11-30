@@ -1,11 +1,12 @@
 /**
- * Cloudflare Worker - Cat Weight Tracker (v7.1 - Bottom Nav Card)
- * Features: Bottom Nav Card, i18n, Theme Toggle, Import/Export, Smart Tooltip
+ * Cloudflare Worker - Purrfit (v7.3 - Renamed)
+ * Features: GitHub Button, i18n, Theme Toggle, Import/Export, PWA
  */
 
 const STORAGE_KEY = 'weights';
 const SESSION_COOKIE_NAME = 'cat_session';
 const FAVICON_URL = 'https://p.929255.xyz/black-cat1.png';
+const GITHUB_URL = 'https://github.com/zaocat/CatWeightTracker';
 
 // Base64 Encoding Helper
 function safeBtoa(str) {
@@ -168,8 +169,8 @@ async function getData(env) {
 // --- Translation Dictionary ---
 const I18N_DATA = {
   zh: {
-    title: "猫咪体重本",
-    login_title: "🐱 铲屎官登录",
+    title: "Purrfit 喵体",
+    login_title: "Purrfit 登录",
     username: "用户名",
     password: "密码",
     login_btn: "芝麻开门",
@@ -200,8 +201,8 @@ const I18N_DATA = {
     unit: "kg"
   },
   en: {
-    title: "Cat Weight Tracker",
-    login_title: "🐱 Admin Login",
+    title: "Purrfit",
+    login_title: "Purrfit Login",
     username: "Username",
     password: "Password",
     login_btn: "Login",
@@ -261,6 +262,7 @@ body { font-family: 'Varela Round', sans-serif; background: var(--bg-grad); colo
     cursor: pointer; box-shadow: 0 4px 12px var(--shadow);
     font-size: 1rem; transition: transform 0.2s; backdrop-filter: blur(10px);
     font-weight: 700; color: var(--text);
+    text-decoration: none;
 }
 .float-btn:hover { transform: scale(1.1); }
 </style>
@@ -279,6 +281,7 @@ body { font-family: 'Varela Round', sans-serif; background: var(--bg-grad); colo
   function t(key) { return i18nData[curLang][key] || key; }
   
   function updatePageText() {
+    document.title = t('title');
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
         if(i18nData[curLang][key]) {
@@ -316,7 +319,7 @@ body { font-family: 'Varela Round', sans-serif; background: var(--bg-grad); colo
 `;
 
 function renderLogin() {
-  return `<!DOCTYPE html><html><head>${SHARED_HEAD}<title>Login</title>
+  return `<!DOCTYPE html><html><head>${SHARED_HEAD}<title>Purrfit Login</title>
   <style>
     body{display:flex;justify-content:center;align-items:center;}
     .card{background:var(--card-bg);backdrop-filter:blur(12px);padding:2.5rem;border-radius:24px;box-shadow:0 10px 30px rgba(0,0,0,0.1);width:100%;max-width:380px;border:1px solid rgba(255,255,255,0.2);text-align:center;}
@@ -329,9 +332,10 @@ function renderLogin() {
     <div class="btn-float-group">
         <button id="langToggle" class="float-btn" onclick="toggleLang()">CN</button>
         <button id="themeToggle" class="float-btn" onclick="toggleTheme()">☀️</button>
+        <a href="${GITHUB_URL}" target="_blank" class="float-btn" title="GitHub"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></a>
     </div>
     <div class="card">
-        <h1 data-i18n="login_title">🐱 Admin Login</h1>
+        <h1 data-i18n="login_title">Purrfit Login</h1>
         <div id="errMsg" class="err" style="display:none" data-i18n="login_err">Invalid credentials</div>
         <form action="/auth/login" method="POST">
             <input type="text" name="username" data-i18n="username" placeholder="Username" required>
@@ -351,8 +355,8 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
   const safeData = JSON.stringify(normalizedData);
   const safeCats = JSON.stringify(catNames);
   const manifestUri = `data:application/manifest+json;charset=utf-8,${encodeURIComponent(JSON.stringify({
-    name: "Cat Weight",
-    short_name: "CatWeight",
+    name: "Purrfit",
+    short_name: "Purrfit",
     start_url: "/",
     display: "standalone",
     background_color: "#fff9f5",
@@ -410,7 +414,6 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
     .btn-io:hover { background: #dfe6e9; color: var(--text); }
     .empty { text-align: center; padding: 60px 0; color: var(--text-sub); font-style: italic; font-size: 1.1rem; }
     
-    /* Nav Card Style */
     .nav-card { display: flex; justify-content: center; align-items: center; gap: 20px; padding: 20px; margin-top: 20px; }
     .nav-link { text-decoration: none; color: var(--text-sub); font-weight: 600; transition: color 0.2s; font-size: 0.95rem; }
     .nav-link:hover { color: var(--primary); }
@@ -669,11 +672,12 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
 
   let content = '';
   
-  // Button Group (Theme + Lang)
+  // Button Group
   const floatBtns = `
     <div class="btn-float-group">
         <button id="langToggle" class="float-btn" onclick="toggleLang()">CN</button>
         <button id="themeToggle" class="float-btn" onclick="toggleTheme()">☀️</button>
+        <a href="${GITHUB_URL}" target="_blank" class="float-btn" title="GitHub"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></a>
     </div>
   `;
 
@@ -688,7 +692,6 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
   `;
 
   if (page === 'home') {
-    // Wrap login link in a nav card
     const adminLink = isLoggedIn ? `<a href="/add" class="nav-link" data-i18n="admin_link">🔐 Dashboard</a>` : `<a href="/login" class="nav-link" data-i18n="login_link">👤 Login</a>`;
     
     content = `
