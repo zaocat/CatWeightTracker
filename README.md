@@ -18,8 +18,10 @@
 <a name="english"></a>
 ## 🇬🇧 English
 
-A minimalist, beautiful, serverless Cat Weight Tracker built on **Cloudflare Workers**.
+**Purrfit** is a minimalist, beautiful, serverless Cat Weight Tracker built on **Cloudflare Workers**.
 Keep track of your furry friend's health with interactive charts, dark mode, multi-language support, and a modern UI—all running for free on your own Cloudflare account.
+
+> 💡 **Name Origin**: A blend of **Purr** (the sound of a happy cat) + **Fit** (health/fitness). It sounds like *"Perfect"*, symbolizing our goal: keeping your feline friend in perfect shape!
 
 ### ✨ Features
 
@@ -90,8 +92,10 @@ Manage your data in the Admin Dashboard (login required).
 <a name="中文说明"></a>
 ## 🇨🇳 中文说明
 
-一个基于 **Cloudflare Workers** 构建的简约、精美、无服务器的猫咪体重记录本。
+**Purrfit**是一个基于 **Cloudflare Workers** 构建的简约、精美、无服务器的猫咪体重记录本。
 通过交互式图表、深色模式、双语界面和现代化的 UI，轻松记录毛孩子的健康趋势。完全免费托管在您自己的 Cloudflare 账户上。
+
+> 💡 **名字由来**：由 **Purr** (猫咪呼噜声) + **Fit** (健康身材) 组合而成。它的读音谐音 *"Perfect"* (完美)，寓意通过记录体重，让猫咪保持完美的健康状态！
 
 ### ✨ 功能特性
 
