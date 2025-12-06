@@ -1,6 +1,6 @@
 /**
- * Cloudflare Worker - Purrfit (v7.3 - Renamed)
- * Features: GitHub Button, i18n, Theme Toggle, Import/Export, PWA
+ * Cloudflare Worker - Purrfit (v7.7 - Ultimate Stable)
+ * Fixes: ReferenceError (js/content), Form Layout, Tooltip Clipping
  */
 
 const STORAGE_KEY = 'weights';
@@ -8,7 +8,7 @@ const SESSION_COOKIE_NAME = 'cat_session';
 const FAVICON_URL = 'https://p.929255.xyz/black-cat1.png';
 const GITHUB_URL = 'https://github.com/zaocat/CatWeightTracker';
 
-// Base64 Encoding Helper
+// --- Helper: Safe Base64 ---
 function safeBtoa(str) {
   try {
     const bytes = new TextEncoder().encode(str);
@@ -24,7 +24,20 @@ export default {
     try {
       return await handleRequest(request, env);
     } catch (e) {
-      return new Response(`<h1>Error 1101 Diagnosis</h1><pre>${e.stack || e.message}</pre><p>Check KV Binding: CAT_KV</p>`, { headers: { 'Content-Type': 'text/html' } });
+      return new Response(`
+        <div style="font-family:sans-serif;padding:20px;color:#333">
+            <h1 style="color:#e74c3c">💥 Critical Error</h1>
+            <p><strong>Error Type:</strong> ${e.name}</p>
+            <p><strong>Message:</strong> ${e.message}</p>
+            <pre style="background:#f5f5f5;padding:15px;border-radius:5px;overflow:auto">${e.stack}</pre>
+            <hr>
+            <p><strong>Troubleshooting:</strong></p>
+            <ul>
+                <li>Ensure KV Namespace is bound as <code>CAT_KV</code> in Settings.</li>
+                <li>Check if environment variables are set correctly.</li>
+            </ul>
+        </div>
+      `, { headers: { 'Content-Type': 'text/html;charset=utf-8' } });
     }
   },
 };
@@ -33,7 +46,7 @@ async function handleRequest(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  if (!env.CAT_KV) throw new Error("CAT_KV binding missing.");
+  if (!env.CAT_KV) throw new Error("KV Binding 'CAT_KV' not found. Please bind it in Cloudflare Dashboard.");
 
   // Config
   const catNamesStr = env.CAT_NAMES || 'My Cat';
@@ -41,7 +54,7 @@ async function handleRequest(request, env) {
   const adminUser = env.ADMIN_USER || 'admin';
   const adminPass = env.ADMIN_PASS || 'password';
 
-  // --- Login Routes ---
+  // --- Routes: Auth ---
   if (path === '/login' && request.method === 'GET') {
     return new Response(renderLogin(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
   }
@@ -68,7 +81,7 @@ async function handleRequest(request, env) {
     return new Response(null, { status: 302, headers });
   }
 
-  // --- Auth Check ---
+  // --- Auth Middleware ---
   const protectedPaths = ['/add', '/api/save', '/api/delete', '/api/import'];
   if (protectedPaths.includes(path)) {
     const cookie = request.headers.get('Cookie');
@@ -78,7 +91,7 @@ async function handleRequest(request, env) {
     }
   }
 
-  // --- Data APIs ---
+  // --- Routes: Data API ---
   if (path === '/api/save' && request.method === 'POST') {
     const formData = await request.formData();
     const id = formData.get('id');
@@ -88,7 +101,7 @@ async function handleRequest(request, env) {
     const note = formData.get('note') || '';
     const currentCat = formData.get('current_cat') || name;
 
-    if (!date || isNaN(weight)) return new Response('Invalid', { status: 400 });
+    if (!date || isNaN(weight)) return new Response('Invalid Input', { status: 400 });
 
     let data = await getData(env);
     if (id) {
@@ -149,7 +162,7 @@ async function handleRequest(request, env) {
     return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}`, 303);
   }
 
-  // --- Main Render ---
+  // --- Routes: Render Page ---
   const data = await getData(env);
   const cookie = request.headers.get('Cookie');
   const validToken = safeBtoa(`${adminUser}:${adminPass}`);
@@ -166,160 +179,58 @@ async function getData(env) {
   return json ? JSON.parse(json) : [];
 }
 
-// --- Translation Dictionary ---
+// --- i18n & Shared ---
 const I18N_DATA = {
   zh: {
-    title: "Purrfit 喵体",
-    login_title: "Purrfit 登录",
-    username: "用户名",
-    password: "密码",
-    login_btn: "芝麻开门",
-    back_home: "← 返回首页",
-    login_err: "账号或密码错误",
-    trend: "📈 体重走势",
-    filter_3m: "近3月",
-    filter_6m: "近半年",
-    filter_all: "全部",
-    history: "📅 历史记录",
-    manage: "📝 数据管理",
-    new_record: "✨ 新记录",
-    add_btn: "✨ 添加记录",
-    save_btn: "💾 保存修改",
-    cancel_btn: "取消",
-    import_btn: "📤 导入 CSV",
-    export_btn: "📥 导出 CSV",
-    logout: "🚫 退出登录",
-    login_link: "👤 铲屎官登录",
-    admin_link: "🔐 进入后台",
-    empty_chart: "此时段无数据",
-    empty_list: "暂无记录",
-    confirm_delete: "确定要删除这条记录吗？",
-    confirm_import: "导入将合并数据，重复日期的记录将被覆盖。确定继续吗？",
-    no_data_export: "没有数据可导出",
-    placeholder_weight: "体重 (kg)",
-    placeholder_note: "备注 (例如：换粮，生病)",
-    unit: "kg"
+    title: "Purrfit 喵体", login_title: "Purrfit 登录", username: "用户名", password: "密码", login_btn: "芝麻开门", back_home: "← 返回首页", login_err: "账号或密码错误",
+    trend: "📈 体重走势", filter_3m: "近3月", filter_6m: "近半年", filter_all: "全部", history: "📅 历史记录", manage: "📝 数据管理",
+    new_record: "✨ 新记录", add_btn: "✨ 添加记录", save_btn: "💾 保存修改", cancel_btn: "取消",
+    import_btn: "📤 导入 CSV", export_btn: "📥 导出 CSV", logout: "🚫 退出登录", login_link: "👤 铲屎官登录", admin_link: "🔐 进入后台",
+    empty_chart: "此时段无数据", empty_list: "暂无记录", confirm_delete: "确定要删除这条记录吗？", confirm_import: "导入将合并数据，重复日期将被覆盖。继续？",
+    no_data_export: "没有数据可导出", placeholder_weight: "体重 (kg)", placeholder_note: "备注 (例如：换粮，生病)", unit: "kg"
   },
   en: {
-    title: "Purrfit",
-    login_title: "Purrfit Login",
-    username: "Username",
-    password: "Password",
-    login_btn: "Login",
-    back_home: "← Back to Home",
-    login_err: "Invalid credentials",
-    trend: "📈 Weight Trend",
-    filter_3m: "3 Months",
-    filter_6m: "6 Months",
-    filter_all: "All",
-    history: "📅 History",
-    manage: "📝 Data Management",
-    new_record: "✨ New Record",
-    add_btn: "✨ Add Record",
-    save_btn: "💾 Save Changes",
-    cancel_btn: "Cancel",
-    import_btn: "📤 Import CSV",
-    export_btn: "📥 Export CSV",
-    logout: "🚫 Logout",
-    login_link: "👤 Admin Login",
-    admin_link: "🔐 Dashboard",
-    empty_chart: "No data in this period",
-    empty_list: "No records found",
-    confirm_delete: "Are you sure you want to delete this record?",
-    confirm_import: "Import will merge data. Records with the same date will be overwritten. Continue?",
-    no_data_export: "No data to export",
-    placeholder_weight: "Weight (kg)",
-    placeholder_note: "Note (e.g. diet change)",
-    unit: "kg"
+    title: "Purrfit", login_title: "Purrfit Login", username: "Username", password: "Password", login_btn: "Login", back_home: "← Back to Home", login_err: "Invalid credentials",
+    trend: "📈 Weight Trend", filter_3m: "3 Months", filter_6m: "6 Months", filter_all: "All", history: "📅 History", manage: "📝 Data Management",
+    new_record: "✨ New Record", add_btn: "✨ Add Record", save_btn: "💾 Save Changes", cancel_btn: "Cancel",
+    import_btn: "📤 Import CSV", export_btn: "📥 Export CSV", logout: "🚫 Logout", login_link: "👤 Admin Login", admin_link: "🔐 Dashboard",
+    empty_chart: "No data in this period", empty_list: "No records found", confirm_delete: "Delete this record?", confirm_import: "Import will merge data. Overwrite duplicates?",
+    no_data_export: "No data to export", placeholder_weight: "Weight (kg)", placeholder_note: "Note (e.g. diet change)", unit: "kg"
   }
 };
 
-// Shared CSS/JS
 const SHARED_HEAD = `
 <link rel="icon" href="${FAVICON_URL}">
 <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=0">
 <style>
-:root {
-  --bg-grad: linear-gradient(180deg, #fff9f5 0%, #fdfbf7 100%);
-  --text: #2d3436; --text-sub: #636e72; --card-bg: #ffffff; --border: #f1f2f6;
-  --input-bg: #fdfdfd; --grid: #f1f2f6; --shadow: rgba(0,0,0,0.05);
-  --tooltip-bg: rgba(45, 52, 54, 0.95); --primary: #ff6b6b;
-  --primary-grad: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%); --dot-fill: #fff;
-}
-html.dark {
-  --bg-grad: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-  --text: #f1f5f9; --text-sub: #94a3b8; --card-bg: rgba(30, 41, 59, 0.7);
-  --border: #334155; --input-bg: #1e293b; --grid: #334155;
-  --shadow: rgba(0,0,0,0.3); --tooltip-bg: rgba(0, 0, 0, 0.95); --dot-fill: #1e293b;
-}
-body { font-family: 'Varela Round', sans-serif; background: var(--bg-grad); color: var(--text); transition: 0.3s; margin: 0; min-height: 100vh; }
+:root { --bg-grad: linear-gradient(180deg, #fff9f5 0%, #fdfbf7 100%); --text: #2d3436; --text-sub: #636e72; --card-bg: #ffffff; --border: #f1f2f6; --input-bg: #fdfdfd; --grid: #f1f2f6; --shadow: rgba(0,0,0,0.05); --tooltip-bg: rgba(45, 52, 54, 0.95); --primary: #ff6b6b; --primary-grad: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%); --dot-fill: #fff; }
+html.dark { --bg-grad: linear-gradient(180deg, #0f172a 0%, #1e293b 100%); --text: #f1f5f9; --text-sub: #94a3b8; --card-bg: rgba(30, 41, 59, 0.7); --border: #334155; --input-bg: #1e293b; --grid: #334155; --shadow: rgba(0,0,0,0.3); --tooltip-bg: rgba(0, 0, 0, 0.95); --dot-fill: #1e293b; }
+body { font-family: 'Varela Round', sans-serif; background: var(--bg-grad); color: var(--text); transition: 0.3s; margin: 0; min-height: 100vh; overflow-x: hidden; }
 .btn-float-group { position: fixed; top: 20px; right: 20px; z-index: 100; display: flex; gap: 10px; }
-.float-btn {
-    background: var(--card-bg); border: 1px solid var(--border);
-    width: 40px; height: 40px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; box-shadow: 0 4px 12px var(--shadow);
-    font-size: 1rem; transition: transform 0.2s; backdrop-filter: blur(10px);
-    font-weight: 700; color: var(--text);
-    text-decoration: none;
-}
+.float-btn { background: var(--card-bg); border: 1px solid var(--border); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px var(--shadow); font-size: 1rem; transition: transform 0.2s; backdrop-filter: blur(10px); font-weight: 700; color: var(--text); text-decoration: none; }
 .float-btn:hover { transform: scale(1.1); }
 </style>
 <script>
   const i18nData = ${JSON.stringify(I18N_DATA)};
   let curLang = localStorage.getItem('lang') || 'zh';
-  
-  function applyTheme() {
-    const saved = localStorage.getItem('theme');
-    const sys = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (saved === 'dark' || (!saved && sys)) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-  }
+  function applyTheme() { const saved = localStorage.getItem('theme'); const sys = window.matchMedia('(prefers-color-scheme: dark)').matches; if (saved === 'dark' || (!saved && sys)) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }
   applyTheme();
-
   function t(key) { return i18nData[curLang][key] || key; }
-  
   function updatePageText() {
     document.title = t('title');
-    document.querySelectorAll('[data-i18n]').forEach(el => {
-        const key = el.getAttribute('data-i18n');
-        if(i18nData[curLang][key]) {
-            if(el.tagName === 'INPUT') el.placeholder = i18nData[curLang][key];
-            else el.innerText = i18nData[curLang][key];
-        }
-    });
-    const langBtn = document.getElementById('langToggle');
-    if(langBtn) langBtn.innerText = curLang === 'zh' ? 'CN' : 'EN';
-    const themeBtn = document.getElementById('themeToggle');
-    if(themeBtn) themeBtn.innerText = document.documentElement.classList.contains('dark') ? '🌙' : '☀️';
+    document.querySelectorAll('[data-i18n]').forEach(el => { const key = el.getAttribute('data-i18n'); if(i18nData[curLang][key]) { if(el.tagName === 'INPUT') el.placeholder = i18nData[curLang][key]; else el.innerText = i18nData[curLang][key]; } });
+    const langBtn = document.getElementById('langToggle'); if(langBtn) langBtn.innerText = curLang === 'zh' ? 'CN' : 'EN';
+    const themeBtn = document.getElementById('themeToggle'); if(themeBtn) themeBtn.innerText = document.documentElement.classList.contains('dark') ? '🌙' : '☀️';
   }
-
-  function toggleLang() {
-    curLang = curLang === 'zh' ? 'en' : 'zh';
-    localStorage.setItem('lang', curLang);
-    updatePageText();
-    window.dispatchEvent(new Event('langChanged'));
-  }
-
-  function toggleTheme() {
-    const html = document.documentElement;
-    if (html.classList.contains('dark')) {
-      html.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    } else {
-      html.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    }
-    updatePageText();
-  }
-
+  function toggleLang() { curLang = curLang === 'zh' ? 'en' : 'zh'; localStorage.setItem('lang', curLang); updatePageText(); window.dispatchEvent(new Event('langChanged')); }
+  function toggleTheme() { const html = document.documentElement; if (html.classList.contains('dark')) { html.classList.remove('dark'); localStorage.setItem('theme', 'light'); } else { html.classList.add('dark'); localStorage.setItem('theme', 'dark'); } updatePageText(); }
   document.addEventListener('DOMContentLoaded', updatePageText);
 </script>
 `;
 
 function renderLogin() {
-  return `<!DOCTYPE html><html><head>${SHARED_HEAD}<title>Purrfit Login</title>
+  return `<!DOCTYPE html><html><head>${SHARED_HEAD}<title>Login</title>
   <style>
     body{display:flex;justify-content:center;align-items:center;}
     .card{background:var(--card-bg);backdrop-filter:blur(12px);padding:2.5rem;border-radius:24px;box-shadow:0 10px 30px rgba(0,0,0,0.1);width:100%;max-width:380px;border:1px solid rgba(255,255,255,0.2);text-align:center;}
@@ -350,22 +261,23 @@ function renderLogin() {
   </body></html>`;
 }
 
+// --- Main Render Function ---
 function renderHTML(allData, page, catNames, isLoggedIn) {
   const normalizedData = allData.map(item => ({ ...item, name: item.name || catNames[0], note: item.note || '' }));
   const safeData = JSON.stringify(normalizedData);
   const safeCats = JSON.stringify(catNames);
-  const manifestUri = `data:application/manifest+json;charset=utf-8,${encodeURIComponent(JSON.stringify({
-    name: "Purrfit",
-    short_name: "Purrfit",
-    start_url: "/",
-    display: "standalone",
-    background_color: "#fff9f5",
-    theme_color: "#ff6b6b",
+  
+  // Prepare Variables (Defined FIRST)
+  const manifest = {
+    name: "Purrfit", short_name: "Purrfit", start_url: "/", display: "standalone",
+    background_color: "#fff9f5", theme_color: "#ff6b6b",
     icons: [{ src: FAVICON_URL, sizes: "192x192", type: "image/png" }]
-  }))}`;
+  };
+  const manifestUri = `data:application/manifest+json;charset=utf-8,${encodeURIComponent(JSON.stringify(manifest))}`;
 
+  // 1. Define CSS
   const css = `
-    .container { max-width: 850px; margin: 0 auto; position: relative; padding-top: 20px; padding-bottom: 40px; }
+    .container { max-width: 850px; margin: 0 auto; position: relative; padding: 20px; width: 100%; box-sizing: border-box; padding-bottom: 40px; }
     body::before { content: ''; position: fixed; top: -100px; right: -50px; width: 400px; height: 400px; background: radial-gradient(circle, rgba(255,107,107,0.08) 0%, rgba(255,255,255,0) 70%); z-index: -1; pointer-events: none; }
     .cat-switcher { background: var(--card-bg); backdrop-filter: blur(12px); border-radius: 20px; padding: 12px 20px; box-shadow: 0 4px 20px var(--shadow); margin-bottom: 30px; border: 1px solid var(--border); text-align: center; transition: transform 0.3s; }
     .curr-cat { display: flex; justify-content: center; align-items: center; gap: 10px; font-weight: 800; font-size: 1.4rem; cursor: pointer; }
@@ -373,7 +285,7 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
     @keyframes slideDown { from{opacity:0;transform:translateY(-5px)} to{opacity:1;transform:translateY(0)} }
     .cat-tag { padding: 8px 18px; border-radius: 99px; background: var(--border); color: var(--text-sub); font-size: 0.95rem; font-weight: 500; cursor: pointer; transition: 0.2s; }
     .cat-tag.active { background: var(--primary-grad); color: white; box-shadow: 0 4px 10px rgba(255,107,107,0.3); }
-    .card { background: var(--card-bg); border-radius: 24px; padding: 30px; margin-bottom: 30px; box-shadow: 0 10px 30px -10px var(--shadow); border: 1px solid var(--border); position: relative; overflow: hidden; transform-style: preserve-3d; will-change: transform; transition: transform 0.1s ease, box-shadow 0.2s ease, background 0.3s; backdrop-filter: blur(10px); }
+    .card { background: var(--card-bg); border-radius: 24px; padding: 30px; margin-bottom: 30px; box-shadow: 0 10px 30px -10px var(--shadow); border: 1px solid var(--border); position: relative; overflow: hidden; transform-style: preserve-3d; will-change: transform; transition: transform 0.1s ease, box-shadow 0.2s ease, background 0.3s; backdrop-filter: blur(10px); max-width: 100%; box-sizing: border-box; }
     .card::after { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(800px circle at var(--mouse-x) var(--mouse-y), rgba(255, 255, 255, 0.15), transparent 40%); opacity: 0; transition: opacity 0.5s; pointer-events: none; z-index: 1; mix-blend-mode: overlay; }
     .card:hover::after { opacity: 1; }
     .card > * { position: relative; z-index: 2; }
@@ -404,26 +316,26 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
     .actions { display: flex; gap: 10px; }
     .btn-icon { width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; transition: 0.2s; }
     .btn-edit { background: var(--border); color: var(--text); } .btn-del { background: #ffeaa7; color: #d63031; }
-    input, select { width: 100%; padding: 14px; border: 2px solid var(--border); border-radius: 16px; font-size: 16px; outline: none; background: var(--input-bg); margin-bottom: 15px; transition: 0.2s; font-family: inherit; color: var(--text); }
+    input, select { width: 100%; padding: 14px; border: 2px solid var(--border); border-radius: 16px; font-size: 16px; outline: none; background: var(--input-bg); margin-bottom: 15px; transition: 0.2s; font-family: inherit; color: var(--text); box-sizing: border-box; }
     input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(255,107,107,0.1); }
-    .form-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 15px; }
+    /* Fix: Single column grid for inputs */
+    .form-grid { display: grid; grid-template-columns: 1fr; gap: 0; }
     .btn-main { width: 100%; padding: 16px; background: var(--primary-grad); color: white; border: none; border-radius: 16px; font-weight: 700; font-size: 1.1rem; cursor: pointer; box-shadow: 0 8px 20px rgba(255,107,107,0.25); transition: transform 0.1s; font-family: inherit; }
     .btn-cancel { width: 100%; padding: 12px; background: transparent; color: var(--text-sub); border: none; cursor: pointer; margin-top: 5px; display: none; font-family: inherit; }
     .io-group { display: flex; gap: 10px; margin-top: 20px; }
     .btn-io { flex: 1; padding: 12px; background: var(--border); border: none; border-radius: 12px; color: var(--text-sub); font-weight: 600; cursor: pointer; font-family: inherit; text-align: center; transition: 0.2s; }
     .btn-io:hover { background: #dfe6e9; color: var(--text); }
     .empty { text-align: center; padding: 60px 0; color: var(--text-sub); font-style: italic; font-size: 1.1rem; }
-    
     .nav-card { display: flex; justify-content: center; align-items: center; gap: 20px; padding: 20px; margin-top: 20px; }
     .nav-link { text-decoration: none; color: var(--text-sub); font-weight: 600; transition: color 0.2s; font-size: 0.95rem; }
     .nav-link:hover { color: var(--primary); }
     .logout-link { color: #ff7675; }
     .logout-link:hover { color: #d63031; }
-
     @media (max-width: 600px) { .card { padding: 20px; } .chart-box { height: 240px; } .btn-float-group { top: 15px; right: 15px; } .float-btn { width: 36px; height: 36px; } .nav-card { gap: 15px; } }
     @media (hover: none) { .card { transform: none !important; } .card::after { display: none; } }
   `;
 
+  // 2. Define JS
   const js = `
     <script>
       const rawData = ${safeData};
@@ -442,13 +354,10 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
         if(sel) sel.value = currentCat;
         const imp = document.getElementById('importTargetCat');
         if(imp) imp.value = currentCat;
-        
         updatePageText();
       });
       
-      window.addEventListener('langChanged', () => {
-        renderApp();
-      });
+      window.addEventListener('langChanged', () => { renderApp(); });
 
       function initTiltEffect() {
         if(window.matchMedia("(hover: none)").matches) return; 
@@ -497,17 +406,11 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
         renderApp();
       }
 
-      function setFilter(range) {
-        timeFilter = range;
-        renderApp();
-      }
+      function setFilter(range) { timeFilter = range; renderApp(); }
 
       function renderApp() {
         document.getElementById('currCatName').innerText = currentCat;
-        document.getElementById('catList').innerHTML = catNames.map(n => 
-          \`<div class="cat-tag \${n===currentCat?'active':''}" onclick="switchCat('\${n}')">\${n}</div>\`
-        ).join('');
-        
+        document.getElementById('catList').innerHTML = catNames.map(n => \`<div class="cat-tag \${n===currentCat?'active':''}" onclick="switchCat('\${n}')">\${n}</div>\`).join('');
         let catData = rawData.filter(d => d.name === currentCat);
         if (timeFilter !== 'all') {
             const now = new Date();
@@ -523,7 +426,6 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
                 btn.innerText = t('filter_'+f); 
             }
         });
-
         renderChart(catData);
         renderList(catData);
         setTimeout(initTiltEffect, 50);
@@ -539,11 +441,9 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
         const cy = parseFloat(el.getAttribute('cy'));
         const width = box.clientWidth;
         const ratio = cx / width;
-        
         tip.className = 'chart-tooltip'; 
         if (ratio > 0.8) tip.classList.add('is-right');
         else if (ratio < 0.2) tip.classList.add('is-left');
-
         tip.innerHTML = \`<strong>\${weight} \${t('unit')}</strong><div class="tooltip-date">\${date}</div>\${noteHtml}\`;
         tip.style.left = cx + 'px';
         tip.style.top = cy + 'px';
@@ -661,15 +561,25 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
       }
 
       function submitImport(input) {
-        if(confirm(t('confirm_import'))) {
-            input.form.submit();
-        } else {
-            input.value = '';
-        }
+        if(confirm(t('confirm_import'))) { input.form.submit(); } else { input.value = ''; }
       }
     </script>
   `;
 
+  // 3. Define Init Script
+  const themeInitScript = `
+    <script>
+      (function() {
+        const saved = localStorage.getItem('theme');
+        const sys = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (saved === 'dark' || (!saved && sys)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+  `;
+
+  // 4. Content Variables
   let content = '';
   
   // Button Group
@@ -762,5 +672,6 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
     `;
   }
 
-  return `<!DOCTYPE html><html lang="zh-CN"><head><title>Cat Weight</title>${SHARED_HEAD}<link rel="manifest" href="${manifestUri}"><style>${css}</style></head><body><div class="container">${content}</div>${js}</body></html>`;
+  // 5. Final Return
+  return `<!DOCTYPE html><html lang="zh-CN"><head><title>Cat Weight</title>${SHARED_HEAD}<link rel="manifest" href="${manifestUri}"><style>${css}</style></head><body><div class="container">${content}</div>${themeInitScript}${js}</body></html>`;
 }
