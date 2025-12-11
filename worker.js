@@ -1,294 +1,128 @@
 /**
- * Cloudflare Worker - Purrfit (v7.7 - Ultimate Stable)
- * Fixes: ReferenceError (js/content), Form Layout, Tooltip Clipping
+ * Cloudflare Worker - Purrfit (v9.5 - Custom Rename UI)
+ * Fixes: Replaced native prompt with custom modal, improved tag spacing.
+ * Features: Settings, i18n, Theme, PWA, Import/Export, Footer.
  */
 
 const STORAGE_KEY = 'weights';
+const CONFIG_KEY = 'config';
 const SESSION_COOKIE_NAME = 'cat_session';
-const FAVICON_URL = 'https://p.929255.xyz/black-cat1.png';
-const GITHUB_URL = 'https://github.com/zaocat/CatWeightTracker';
 
-// --- Helper: Safe Base64 ---
+// --- 1. Global Constants ---
+const GITHUB_URL = 'https://github.com/zaocat/Purrfit';
+const DEFAULT_FAVICON = 'https://p.929255.xyz/black-cat1.png';
+const DEFAULT_TITLE_ZH = 'Purrfit 喵体';
+const DEFAULT_TITLE_EN = 'Purrfit';
+
+// --- 2. Helper Functions ---
 function safeBtoa(str) {
   try {
     const bytes = new TextEncoder().encode(str);
     const binString = String.fromCodePoint(...bytes);
     return btoa(binString);
   } catch (e) {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (m, p1) => String.fromCharCode('0x' + p1)));
   }
 }
 
-export default {
-  async fetch(request, env) {
-    try {
-      return await handleRequest(request, env);
-    } catch (e) {
-      return new Response(`
-        <div style="font-family:sans-serif;padding:20px;color:#333">
-            <h1 style="color:#e74c3c">💥 Critical Error</h1>
-            <p><strong>Error Type:</strong> ${e.name}</p>
-            <p><strong>Message:</strong> ${e.message}</p>
-            <pre style="background:#f5f5f5;padding:15px;border-radius:5px;overflow:auto">${e.stack}</pre>
-            <hr>
-            <p><strong>Troubleshooting:</strong></p>
-            <ul>
-                <li>Ensure KV Namespace is bound as <code>CAT_KV</code> in Settings.</li>
-                <li>Check if environment variables are set correctly.</li>
-            </ul>
-        </div>
-      `, { headers: { 'Content-Type': 'text/html;charset=utf-8' } });
+// --- 3. Static Assets ---
+
+function getI18nData() {
+  return {
+    zh: {
+      login_title: "铲屎官登录", username: "用户名", password: "密码", login_btn: "芝麻开门", back_home: "← 返回首页", login_err: "账号或密码错误",
+      trend: "📈 体重走势", filter_3m: "近3月", filter_6m: "近半年", filter_all: "全部", history: "📅 历史记录", manage: "📝 数据管理",
+      new_record: "✨ 新记录", add_btn: "✨ 添加记录", save_btn: "💾 保存修改", cancel_btn: "取消",
+      import_btn: "📤 导入 CSV", export_btn: "📥 导出 CSV", logout: "🚫 退出登录", login_link: "👤 铲屎官登录", admin_link: "🔐 进入后台",
+      empty_chart: "此时段无数据", empty_list: "暂无记录", confirm_delete: "确定要删除这条记录吗？", confirm_import: "导入将合并数据，重复日期将被覆盖。继续？",
+      no_data_export: "没有数据可导出", placeholder_weight: "体重 (kg)", placeholder_note: "备注 (例如：换粮，生病)", unit: "kg",
+      settings_btn: "⚙️ 网站设置", settings_title: "⚙️ 全局设置", lbl_title_zh: "中文标题", lbl_title_en: "英文标题", lbl_favicon: "图标 URL",
+      lbl_cats: "猫咪管理", add_cat_placeholder: "输入名字按回车添加...", save_settings: "💾 保存设置",
+      footer_github: "GitHub 开源",
+      rename_title: "✏️ 重命名猫咪", rename_desc: "将同步更新该猫咪的所有历史数据。", rename_placeholder: "新名字", rename_btn: "确认修改",
+      remove_cat_confirm: "确定删除这个猫咪标签吗？（历史数据会保留但不再显示）"
+    },
+    en: {
+      login_title: "Admin Login", username: "Username", password: "Password", login_btn: "Login", back_home: "← Back to Home", login_err: "Invalid credentials",
+      trend: "📈 Weight Trend", filter_3m: "3 Months", filter_6m: "6 Months", filter_all: "All", history: "📅 History", manage: "📝 Data Management",
+      new_record: "✨ New Record", add_btn: "✨ Add Record", save_btn: "💾 Save Changes", cancel_btn: "Cancel",
+      import_btn: "📤 Import CSV", export_btn: "📥 Export CSV", logout: "🚫 Logout", login_link: "👤 Admin Login", admin_link: "🔐 Dashboard",
+      empty_chart: "No data in this period", empty_list: "No records found", confirm_delete: "Delete this record?", confirm_import: "Import will merge data. Overwrite duplicates?",
+      no_data_export: "No data to export", placeholder_weight: "Weight (kg)", placeholder_note: "Note (e.g. diet change)", unit: "kg",
+      settings_btn: "⚙️ Settings", settings_title: "⚙️ Global Settings", lbl_title_zh: "CN Title", lbl_title_en: "EN Title", lbl_favicon: "Favicon URL",
+      lbl_cats: "Manage Cats", add_cat_placeholder: "Type name & Enter...", save_settings: "💾 Save Settings",
+      footer_github: "Open Source",
+      rename_title: "✏️ Rename Cat", rename_desc: "This will update all historical records.", rename_placeholder: "New Name", rename_btn: "Confirm",
+      remove_cat_confirm: "Remove this cat tag? (Data remains but hidden)"
     }
-  },
-};
-
-async function handleRequest(request, env) {
-  const url = new URL(request.url);
-  const path = url.pathname;
-
-  if (!env.CAT_KV) throw new Error("KV Binding 'CAT_KV' not found. Please bind it in Cloudflare Dashboard.");
-
-  // Config
-  const catNamesStr = env.CAT_NAMES || 'My Cat';
-  const catNames = catNamesStr.split(',').map(s => s.trim()).filter(s => s);
-  const adminUser = env.ADMIN_USER || 'admin';
-  const adminPass = env.ADMIN_PASS || 'password';
-
-  // --- Routes: Auth ---
-  if (path === '/login' && request.method === 'GET') {
-    return new Response(renderLogin(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
-  }
-
-  if (path === '/auth/login' && request.method === 'POST') {
-    const formData = await request.formData();
-    const user = formData.get('username');
-    const pass = formData.get('password');
-    if (user === adminUser && pass === adminPass) {
-      const token = safeBtoa(`${user}:${pass}`);
-      const headers = new Headers();
-      headers.append('Set-Cookie', `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; Max-Age=604800; SameSite=Lax`);
-      headers.append('Location', '/add');
-      return new Response(null, { status: 302, headers });
-    } else {
-      return Response.redirect(url.origin + '/login?error=1', 302);
-    }
-  }
-
-  if (path === '/logout') {
-    const headers = new Headers();
-    headers.append('Set-Cookie', `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0`);
-    headers.append('Location', '/');
-    return new Response(null, { status: 302, headers });
-  }
-
-  // --- Auth Middleware ---
-  const protectedPaths = ['/add', '/api/save', '/api/delete', '/api/import'];
-  if (protectedPaths.includes(path)) {
-    const cookie = request.headers.get('Cookie');
-    const validToken = safeBtoa(`${adminUser}:${adminPass}`);
-    if (!cookie || !cookie.includes(`${SESSION_COOKIE_NAME}=${validToken}`)) {
-      return Response.redirect(url.origin + '/login', 302);
-    }
-  }
-
-  // --- Routes: Data API ---
-  if (path === '/api/save' && request.method === 'POST') {
-    const formData = await request.formData();
-    const id = formData.get('id');
-    const date = formData.get('date');
-    const weight = parseFloat(formData.get('weight'));
-    const name = formData.get('name');
-    const note = formData.get('note') || '';
-    const currentCat = formData.get('current_cat') || name;
-
-    if (!date || isNaN(weight)) return new Response('Invalid Input', { status: 400 });
-
-    let data = await getData(env);
-    if (id) {
-      const index = data.findIndex(item => item.id === id);
-      if (index !== -1) data[index] = { ...data[index], date, weight, name, note };
-    } else {
-      data.push({ id: Date.now().toString(), date, weight, name, note });
-    }
-    data.sort((a, b) => new Date(a.date) - new Date(b.date));
-    await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(data));
-    return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}`, 303);
-  }
-
-  if (path === '/api/delete' && request.method === 'POST') {
-    const formData = await request.formData();
-    const id = formData.get('id');
-    const currentCat = formData.get('current_cat');
-    let data = await getData(env);
-    data = data.filter(item => item.id !== id);
-    await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(data));
-    return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}`, 303);
-  }
-
-  if (path === '/api/import' && request.method === 'POST') {
-    const formData = await request.formData();
-    const file = formData.get('csv_file');
-    const currentCat = formData.get('target_name') || catNames[0];
-    if (!file || typeof file === 'string') return new Response('File required', {status: 400});
-    
-    const text = await file.text();
-    const lines = text.split(/\r?\n/);
-    let data = await getData(env);
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line || line.toLowerCase().includes('date') || line.includes('日期')) continue;
-        
-        const parts = line.split(',');
-        if (parts.length < 2) continue;
-        const date = parts[0].trim();
-        const weight = parseFloat(parts[1]);
-        if (!date || isNaN(weight)) continue;
-
-        let name = currentCat;
-        let note = '';
-        if (parts.length === 3) note = parts[2].trim();
-        else if (parts.length >= 4) {
-            name = parts[2].trim() || currentCat;
-            note = parts.slice(3).join(',').trim();
-        }
-
-        const existingIdx = data.findIndex(d => d.date === date && d.name === name);
-        if (existingIdx !== -1) data[existingIdx] = { ...data[existingIdx], weight, note };
-        else data.push({ id: Date.now().toString() + Math.random().toString().substr(2,5), date, weight, name, note });
-    }
-    data.sort((a, b) => new Date(a.date) - new Date(b.date));
-    await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(data));
-    return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}`, 303);
-  }
-
-  // --- Routes: Render Page ---
-  const data = await getData(env);
-  const cookie = request.headers.get('Cookie');
-  const validToken = safeBtoa(`${adminUser}:${adminPass}`);
-  const isLoggedIn = cookie && cookie.includes(`${SESSION_COOKIE_NAME}=${validToken}`);
-  const pageType = path === '/add' ? 'admin' : 'home';
-
-  return new Response(renderHTML(data, pageType, catNames, isLoggedIn), {
-    headers: { 'Content-Type': 'text/html;charset=UTF-8' },
-  });
-}
-
-async function getData(env) {
-  const json = await env.CAT_KV.get(STORAGE_KEY);
-  return json ? JSON.parse(json) : [];
-}
-
-// --- i18n & Shared ---
-const I18N_DATA = {
-  zh: {
-    title: "Purrfit 喵体", login_title: "Purrfit 登录", username: "用户名", password: "密码", login_btn: "芝麻开门", back_home: "← 返回首页", login_err: "账号或密码错误",
-    trend: "📈 体重走势", filter_3m: "近3月", filter_6m: "近半年", filter_all: "全部", history: "📅 历史记录", manage: "📝 数据管理",
-    new_record: "✨ 新记录", add_btn: "✨ 添加记录", save_btn: "💾 保存修改", cancel_btn: "取消",
-    import_btn: "📤 导入 CSV", export_btn: "📥 导出 CSV", logout: "🚫 退出登录", login_link: "👤 铲屎官登录", admin_link: "🔐 进入后台",
-    empty_chart: "此时段无数据", empty_list: "暂无记录", confirm_delete: "确定要删除这条记录吗？", confirm_import: "导入将合并数据，重复日期将被覆盖。继续？",
-    no_data_export: "没有数据可导出", placeholder_weight: "体重 (kg)", placeholder_note: "备注 (例如：换粮，生病)", unit: "kg"
-  },
-  en: {
-    title: "Purrfit", login_title: "Purrfit Login", username: "Username", password: "Password", login_btn: "Login", back_home: "← Back to Home", login_err: "Invalid credentials",
-    trend: "📈 Weight Trend", filter_3m: "3 Months", filter_6m: "6 Months", filter_all: "All", history: "📅 History", manage: "📝 Data Management",
-    new_record: "✨ New Record", add_btn: "✨ Add Record", save_btn: "💾 Save Changes", cancel_btn: "Cancel",
-    import_btn: "📤 Import CSV", export_btn: "📥 Export CSV", logout: "🚫 Logout", login_link: "👤 Admin Login", admin_link: "🔐 Dashboard",
-    empty_chart: "No data in this period", empty_list: "No records found", confirm_delete: "Delete this record?", confirm_import: "Import will merge data. Overwrite duplicates?",
-    no_data_export: "No data to export", placeholder_weight: "Weight (kg)", placeholder_note: "Note (e.g. diet change)", unit: "kg"
-  }
-};
-
-const SHARED_HEAD = `
-<link rel="icon" href="${FAVICON_URL}">
-<link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=0">
-<style>
-:root { --bg-grad: linear-gradient(180deg, #fff9f5 0%, #fdfbf7 100%); --text: #2d3436; --text-sub: #636e72; --card-bg: #ffffff; --border: #f1f2f6; --input-bg: #fdfdfd; --grid: #f1f2f6; --shadow: rgba(0,0,0,0.05); --tooltip-bg: rgba(45, 52, 54, 0.95); --primary: #ff6b6b; --primary-grad: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%); --dot-fill: #fff; }
-html.dark { --bg-grad: linear-gradient(180deg, #0f172a 0%, #1e293b 100%); --text: #f1f5f9; --text-sub: #94a3b8; --card-bg: rgba(30, 41, 59, 0.7); --border: #334155; --input-bg: #1e293b; --grid: #334155; --shadow: rgba(0,0,0,0.3); --tooltip-bg: rgba(0, 0, 0, 0.95); --dot-fill: #1e293b; }
-body { font-family: 'Varela Round', sans-serif; background: var(--bg-grad); color: var(--text); transition: 0.3s; margin: 0; min-height: 100vh; overflow-x: hidden; }
-.btn-float-group { position: fixed; top: 20px; right: 20px; z-index: 100; display: flex; gap: 10px; }
-.float-btn { background: var(--card-bg); border: 1px solid var(--border); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px var(--shadow); font-size: 1rem; transition: transform 0.2s; backdrop-filter: blur(10px); font-weight: 700; color: var(--text); text-decoration: none; }
-.float-btn:hover { transform: scale(1.1); }
-</style>
-<script>
-  const i18nData = ${JSON.stringify(I18N_DATA)};
-  let curLang = localStorage.getItem('lang') || 'zh';
-  function applyTheme() { const saved = localStorage.getItem('theme'); const sys = window.matchMedia('(prefers-color-scheme: dark)').matches; if (saved === 'dark' || (!saved && sys)) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }
-  applyTheme();
-  function t(key) { return i18nData[curLang][key] || key; }
-  function updatePageText() {
-    document.title = t('title');
-    document.querySelectorAll('[data-i18n]').forEach(el => { const key = el.getAttribute('data-i18n'); if(i18nData[curLang][key]) { if(el.tagName === 'INPUT') el.placeholder = i18nData[curLang][key]; else el.innerText = i18nData[curLang][key]; } });
-    const langBtn = document.getElementById('langToggle'); if(langBtn) langBtn.innerText = curLang === 'zh' ? 'CN' : 'EN';
-    const themeBtn = document.getElementById('themeToggle'); if(themeBtn) themeBtn.innerText = document.documentElement.classList.contains('dark') ? '🌙' : '☀️';
-  }
-  function toggleLang() { curLang = curLang === 'zh' ? 'en' : 'zh'; localStorage.setItem('lang', curLang); updatePageText(); window.dispatchEvent(new Event('langChanged')); }
-  function toggleTheme() { const html = document.documentElement; if (html.classList.contains('dark')) { html.classList.remove('dark'); localStorage.setItem('theme', 'light'); } else { html.classList.add('dark'); localStorage.setItem('theme', 'dark'); } updatePageText(); }
-  document.addEventListener('DOMContentLoaded', updatePageText);
-</script>
-`;
-
-function renderLogin() {
-  return `<!DOCTYPE html><html><head>${SHARED_HEAD}<title>Login</title>
-  <style>
-    body{display:flex;justify-content:center;align-items:center;}
-    .card{background:var(--card-bg);backdrop-filter:blur(12px);padding:2.5rem;border-radius:24px;box-shadow:0 10px 30px rgba(0,0,0,0.1);width:100%;max-width:380px;border:1px solid rgba(255,255,255,0.2);text-align:center;}
-    input{width:100%;padding:14px;margin-bottom:1rem;border:none;background:var(--input-bg);border-radius:12px;font-size:1rem;box-sizing:border-box;outline:none;color:var(--text);}
-    button.login{width:100%;padding:14px;background:linear-gradient(to right,#ff9a9e,#fecfef);color:#fff;border:none;border-radius:12px;font-size:1.1rem;cursor:pointer;font-family:inherit;box-shadow:0 4px 10px rgba(255,154,158,0.3);}
-    .err{color:#ff6b6b;margin-bottom:1rem;background:rgba(255,0,0,0.1);padding:8px;border-radius:8px;font-size:0.9rem}
-    .back{display:block;margin-top:1.5rem;color:var(--text-sub);text-decoration:none;font-size:0.9rem}
-  </style>
-  </head><body>
-    <div class="btn-float-group">
-        <button id="langToggle" class="float-btn" onclick="toggleLang()">CN</button>
-        <button id="themeToggle" class="float-btn" onclick="toggleTheme()">☀️</button>
-        <a href="${GITHUB_URL}" target="_blank" class="float-btn" title="GitHub"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></a>
-    </div>
-    <div class="card">
-        <h1 data-i18n="login_title">Purrfit Login</h1>
-        <div id="errMsg" class="err" style="display:none" data-i18n="login_err">Invalid credentials</div>
-        <form action="/auth/login" method="POST">
-            <input type="text" name="username" data-i18n="username" placeholder="Username" required>
-            <input type="password" name="password" data-i18n="password" placeholder="Password" required>
-            <button type="submit" class="login" data-i18n="login_btn">Login</button>
-        </form>
-        <a href="/" class="back" data-i18n="back_home">← Back to Home</a>
-    </div>
-    <script>
-        if(window.location.search.includes('error=1')) document.getElementById('errMsg').style.display = 'block';
-    </script>
-  </body></html>`;
-}
-
-// --- Main Render Function ---
-function renderHTML(allData, page, catNames, isLoggedIn) {
-  const normalizedData = allData.map(item => ({ ...item, name: item.name || catNames[0], note: item.note || '' }));
-  const safeData = JSON.stringify(normalizedData);
-  const safeCats = JSON.stringify(catNames);
-  
-  // Prepare Variables (Defined FIRST)
-  const manifest = {
-    name: "Purrfit", short_name: "Purrfit", start_url: "/", display: "standalone",
-    background_color: "#fff9f5", theme_color: "#ff6b6b",
-    icons: [{ src: FAVICON_URL, sizes: "192x192", type: "image/png" }]
   };
-  const manifestUri = `data:application/manifest+json;charset=utf-8,${encodeURIComponent(JSON.stringify(manifest))}`;
+}
 
-  // 1. Define CSS
-  const css = `
-    .container { max-width: 850px; margin: 0 auto; position: relative; padding: 20px; width: 100%; box-sizing: border-box; padding-bottom: 40px; }
+function getCss() {
+  return `
+  <style>
+    :root { --bg-grad: linear-gradient(180deg, #fff9f5 0%, #fdfbf7 100%); --text: #2d3436; --text-sub: #636e72; --card-bg: #ffffff; --border: #f1f2f6; --input-bg: #fdfdfd; --grid: #f1f2f6; --shadow: rgba(0,0,0,0.05); --tooltip-bg: rgba(45, 52, 54, 0.95); --primary: #ff6b6b; --primary-grad: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%); --dot-fill: #fff; --spotlight-color: rgba(255, 107, 107, 0.15); }
+    html.dark { --bg-grad: linear-gradient(180deg, #0f172a 0%, #1e293b 100%); --text: #f1f5f9; --text-sub: #94a3b8; --card-bg: rgba(30, 41, 59, 0.7); --border: #334155; --input-bg: #1e293b; --grid: #334155; --shadow: rgba(0,0,0,0.3); --tooltip-bg: rgba(0, 0, 0, 0.95); --dot-fill: #1e293b; --spotlight-color: rgba(255, 255, 255, 0.1); }
+    body { font-family: 'Varela Round', sans-serif; background: var(--bg-grad); color: var(--text); transition: 0.3s; margin: 0; min-height: 100vh; overflow-x: hidden; display: flex; flex-direction: column; }
+    
+    .container { max-width: 850px; margin: 0 auto; position: relative; padding: 20px; width: 100%; box-sizing: border-box; flex: 1; display: flex; flex-direction: column; }
     body::before { content: ''; position: fixed; top: -100px; right: -50px; width: 400px; height: 400px; background: radial-gradient(circle, rgba(255,107,107,0.08) 0%, rgba(255,255,255,0) 70%); z-index: -1; pointer-events: none; }
-    .cat-switcher { background: var(--card-bg); backdrop-filter: blur(12px); border-radius: 20px; padding: 12px 20px; box-shadow: 0 4px 20px var(--shadow); margin-bottom: 30px; border: 1px solid var(--border); text-align: center; transition: transform 0.3s; }
-    .curr-cat { display: flex; justify-content: center; align-items: center; gap: 10px; font-weight: 800; font-size: 1.4rem; cursor: pointer; }
-    .cat-list { display: none; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border); animation: slideDown 0.2s ease; }
-    @keyframes slideDown { from{opacity:0;transform:translateY(-5px)} to{opacity:1;transform:translateY(0)} }
-    .cat-tag { padding: 8px 18px; border-radius: 99px; background: var(--border); color: var(--text-sub); font-size: 0.95rem; font-weight: 500; cursor: pointer; transition: 0.2s; }
-    .cat-tag.active { background: var(--primary-grad); color: white; box-shadow: 0 4px 10px rgba(255,107,107,0.3); }
+    @media (max-width: 1100px) { .container { padding-top: 80px; } } 
+    @media (max-width: 600px) { .container { padding-top: 20px; } }
+
+    /* Footer */
+    .app-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 30px; color: var(--text-sub); font-size: 0.8rem; opacity: 0.7; width: 100%; }
+    .footer-left { font-weight: 500; padding-left: 5px; }
+    .footer-link { display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--text); text-decoration: none; transition: 0.2s; height: 40px; padding: 0 16px; border-radius: 99px; background: var(--card-bg); border: 1px solid var(--border); box-shadow: 0 4px 12px var(--shadow); font-weight: 600; font-size: 0.9rem; }
+    .footer-link:hover { transform: translateY(-1px); box-shadow: 0 6px 15px rgba(0,0,0,0.08); color: var(--primary); border-color: var(--primary); }
+    .footer-link svg { fill: currentColor; }
+
+    /* UI Elements */
     .card { background: var(--card-bg); border-radius: 24px; padding: 30px; margin-bottom: 30px; box-shadow: 0 10px 30px -10px var(--shadow); border: 1px solid var(--border); position: relative; overflow: hidden; transform-style: preserve-3d; will-change: transform; transition: transform 0.1s ease, box-shadow 0.2s ease, background 0.3s; backdrop-filter: blur(10px); max-width: 100%; box-sizing: border-box; }
-    .card::after { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(800px circle at var(--mouse-x) var(--mouse-y), rgba(255, 255, 255, 0.15), transparent 40%); opacity: 0; transition: opacity 0.5s; pointer-events: none; z-index: 1; mix-blend-mode: overlay; }
+    .card::after { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(600px circle at var(--mouse-x) var(--mouse-y), var(--spotlight-color), transparent 40%); opacity: 0; transition: opacity 0.5s; pointer-events: none; z-index: 1; }
     .card:hover::after { opacity: 1; }
     .card > * { position: relative; z-index: 2; }
+    
+    input, select { width: 100%; padding: 14px; border: 2px solid var(--border); border-radius: 16px; font-size: 16px; outline: none; background: var(--input-bg); margin-bottom: 15px; transition: 0.2s; font-family: inherit; color: var(--text); box-sizing: border-box; }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(255,107,107,0.1); }
+    .form-grid { display: grid; grid-template-columns: 1fr; gap: 0; }
+
+    .btn-main { width: 100%; padding: 16px; background: var(--primary-grad); color: white; border: none; border-radius: 16px; font-weight: 700; font-size: 1.1rem; cursor: pointer; box-shadow: 0 8px 20px rgba(255,107,107,0.25); transition: transform 0.1s; font-family: inherit; }
+    .btn-cancel { width: 100%; padding: 12px; background: transparent; color: var(--text-sub); border: none; cursor: pointer; margin-top: 5px; display: none; font-family: inherit; }
+    .io-group { display: flex; gap: 10px; margin-top: 20px; }
+    .btn-io { flex: 1; padding: 12px; background: var(--border); border: none; border-radius: 12px; color: var(--text-sub); font-weight: 600; cursor: pointer; font-family: inherit; text-align: center; transition: 0.2s; }
+    .btn-io:hover { background: #dfe6e9; color: var(--text); }
+
+    .btn-float-group { position: fixed; top: 20px; right: 20px; z-index: 100; display: flex; gap: 10px; align-items: center; }
+    .float-btn { background: var(--card-bg); border: 1px solid var(--border); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px var(--shadow); font-size: 1rem; transition: transform 0.2s; backdrop-filter: blur(10px); font-weight: 700; color: var(--text); text-decoration: none; }
+    .float-btn:hover { transform: scale(1.1); }
+    .menu-trigger { display: none; } 
+    .float-actions { display: flex; gap: 10px; }
+    @media (max-width: 600px) {
+        .btn-float-group { flex-direction: column; align-items: flex-end; }
+        .menu-trigger { display: flex; z-index: 102; font-size: 1.2rem; }
+        .float-actions { display: none; flex-direction: column; gap: 10px; margin-top: 10px; animation: fadeIn 0.2s ease; }
+        .btn-float-group.open .float-actions { display: flex; }
+        .btn-float-group.open .menu-trigger { background: var(--primary); color: white; border-color: transparent; }
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Login Page */
+    .login-body { display: flex; justify-content: center; align-items: center; min-height: 100vh; flex-direction: column; }
+    .login-card { text-align: center; width: 100%; max-width: 380px; margin: 20px; }
+    .login-card h1 { margin-bottom: 1.5rem; font-size: 1.8rem; color: var(--text); }
+    button.login { width: 100%; padding: 14px; background: linear-gradient(to right,#ff9a9e,#fecfef); color: #fff; border: none; border-radius: 12px; font-size: 1.1rem; cursor: pointer; box-shadow: 0 4px 10px rgba(255,154,158,0.3); font-weight: bold; font-family: inherit; }
+    .err { color: #ff6b6b; margin-bottom: 1rem; background: rgba(255,0,0,0.1); padding: 10px; border-radius: 12px; font-size: 0.9rem; border: 1px solid rgba(255,107,107,0.2); }
+    .back { display: block; margin-top: 2rem; color: var(--text-sub); text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: 0.2s; }
+    .back:hover { color: var(--primary); transform: translateX(-3px); }
+
+    /* Chart & List */
+    .cat-switcher { background: var(--card-bg); backdrop-filter: blur(12px); border-radius: 20px; padding: 12px 20px; box-shadow: 0 4px 20px var(--shadow); margin-bottom: 30px; border: 1px solid var(--border); text-align: center; transition: transform 0.3s; }
+    .curr-cat { display: flex; justify-content: center; align-items: center; gap: 10px; font-weight: 800; font-size: 1.4rem; cursor: pointer; white-space: nowrap; }
+    .cat-list { display: none; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border); animation: slideDown 0.2s ease; }
+    .cat-tag { padding: 8px 18px; border-radius: 99px; background: var(--border); color: var(--text-sub); font-size: 0.95rem; font-weight: 500; cursor: pointer; transition: 0.2s; }
+    .cat-tag.active { background: var(--primary-grad); color: white; box-shadow: 0 4px 10px rgba(255,107,107,0.3); }
+
     h3 { margin: 0 0 20px 0; font-size: 1.2rem; display: flex; justify-content: space-between; align-items: center; font-weight: 700; }
     .filters { display: flex; gap: 8px; font-size: 0.85rem; }
     .filter-btn { background: transparent; border: 1px solid var(--border); color: var(--text-sub); padding: 4px 12px; border-radius: 12px; cursor: pointer; transition: 0.2s; font-family: inherit; }
@@ -316,36 +150,506 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
     .actions { display: flex; gap: 10px; }
     .btn-icon { width: 38px; height: 38px; border-radius: 10px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; transition: 0.2s; }
     .btn-edit { background: var(--border); color: var(--text); } .btn-del { background: #ffeaa7; color: #d63031; }
-    input, select { width: 100%; padding: 14px; border: 2px solid var(--border); border-radius: 16px; font-size: 16px; outline: none; background: var(--input-bg); margin-bottom: 15px; transition: 0.2s; font-family: inherit; color: var(--text); box-sizing: border-box; }
-    input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(255,107,107,0.1); }
-    /* Fix: Single column grid for inputs */
-    .form-grid { display: grid; grid-template-columns: 1fr; gap: 0; }
-    .btn-main { width: 100%; padding: 16px; background: var(--primary-grad); color: white; border: none; border-radius: 16px; font-weight: 700; font-size: 1.1rem; cursor: pointer; box-shadow: 0 8px 20px rgba(255,107,107,0.25); transition: transform 0.1s; font-family: inherit; }
-    .btn-cancel { width: 100%; padding: 12px; background: transparent; color: var(--text-sub); border: none; cursor: pointer; margin-top: 5px; display: none; font-family: inherit; }
-    .io-group { display: flex; gap: 10px; margin-top: 20px; }
-    .btn-io { flex: 1; padding: 12px; background: var(--border); border: none; border-radius: 12px; color: var(--text-sub); font-weight: 600; cursor: pointer; font-family: inherit; text-align: center; transition: 0.2s; }
-    .btn-io:hover { background: #dfe6e9; color: var(--text); }
     .empty { text-align: center; padding: 60px 0; color: var(--text-sub); font-style: italic; font-size: 1.1rem; }
     .nav-card { display: flex; justify-content: center; align-items: center; gap: 20px; padding: 20px; margin-top: 20px; }
     .nav-link { text-decoration: none; color: var(--text-sub); font-weight: 600; transition: color 0.2s; font-size: 0.95rem; }
     .nav-link:hover { color: var(--primary); }
     .logout-link { color: #ff7675; }
     .logout-link:hover { color: #d63031; }
-    @media (max-width: 600px) { .card { padding: 20px; } .chart-box { height: 240px; } .btn-float-group { top: 15px; right: 15px; } .float-btn { width: 36px; height: 36px; } .nav-card { gap: 15px; } }
+    @media (max-width: 600px) { .card { padding: 20px; } .chart-box { height: 240px; } .nav-card { gap: 15px; } }
     @media (hover: none) { .card { transform: none !important; } .card::after { display: none; } }
+
+    /* Modals (Settings & Rename) */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 200; backdrop-filter: blur(5px); }
+    .modal { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 450px; background: var(--card-bg); border-radius: 24px; padding: 30px; border: 1px solid var(--border); max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .close-icon { cursor: pointer; font-size: 1.5rem; color: var(--text-sub); line-height: 1; transition: 0.2s; }
+    .close-icon:hover { color: var(--text); transform: scale(1.1); }
+    
+    /* Improved Tag Chips */
+    .tags-container { 
+        display: flex; flex-wrap: wrap; gap: 10px; /* Increased gap */
+        border: 2px solid var(--border); 
+        border-radius: 16px; 
+        padding: 12px; 
+        background: var(--input-bg); 
+        min-height: 48px;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    .tag-chip { 
+        background: var(--primary); 
+        color: white; 
+        padding: 6px 14px; 
+        border-radius: 99px; 
+        font-size: 0.9rem; 
+        font-weight: 500;
+        display: flex; align-items: center; gap: 8px; /* More space inside chip */
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        transition: 0.2s;
+    }
+    .tag-chip:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+    
+    .tag-actions { display: flex; align-items: center; gap: 8px; margin-left: 2px; }
+    .tag-icon { cursor: pointer; font-weight: bold; opacity: 0.8; font-size: 1rem; line-height: 1; transition: 0.2s; }
+    .tag-icon:hover { opacity: 1; transform: scale(1.2); }
+    .tag-input { border: none; outline: none; background: transparent; flex-grow: 1; min-width: 100px; font-size: 1rem; color: var(--text); font-family: inherit; }
+
+    /* Rename Modal z-index fix */
+    #renameModal { z-index: 210; } /* Above settings */
+  </style>
+  `;
+}
+
+function getHead(config) {
+  return `
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=0">
+  <link rel="icon" href="${config.favicon}">
+  <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet">
+  ${getCss()}
+  <script>
+    (function() {
+        const saved = localStorage.getItem('theme');
+        const sys = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (saved === 'dark' || (!saved && sys)) {
+          document.documentElement.classList.add('dark');
+        }
+    })();
+  </script>
+  `;
+}
+
+function getCommonJs(config) {
+  return `
+  <script>
+    const i18nData = ${JSON.stringify(getI18nData())};
+    let curLang = localStorage.getItem('lang') || 'zh';
+    function t(key) { return i18nData[curLang][key] || key; }
+    function updatePageText() {
+        document.title = curLang === 'zh' ? '${config.title_zh}' : '${config.title_en}';
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if(i18nData[curLang][key]) {
+                if(el.tagName === 'INPUT') el.placeholder = i18nData[curLang][key];
+                else el.innerText = i18nData[curLang][key];
+            }
+        });
+        const langBtn = document.getElementById('langToggle');
+        if(langBtn) langBtn.innerText = curLang === 'zh' ? 'CN' : 'EN';
+        const themeBtn = document.getElementById('themeToggle');
+        if(themeBtn) themeBtn.innerText = document.documentElement.classList.contains('dark') ? '🌙' : '☀️';
+        const githubLink = document.getElementById('footerGithub');
+        if(githubLink) githubLink.innerText = t('footer_github');
+    }
+    function toggleLang() {
+        curLang = curLang === 'zh' ? 'en' : 'zh';
+        localStorage.setItem('lang', curLang);
+        updatePageText();
+        window.dispatchEvent(new Event('langChanged'));
+    }
+    function toggleTheme() {
+        const html = document.documentElement;
+        if (html.classList.contains('dark')) {
+          html.classList.remove('dark');
+          localStorage.setItem('theme', 'light');
+        } else {
+          html.classList.add('dark');
+          localStorage.setItem('theme', 'dark');
+        }
+        updatePageText();
+    }
+    function toggleFloatMenu() {
+        document.getElementById('floatGroup').classList.toggle('open');
+        const trigger = document.getElementById('menuTrigger');
+        trigger.innerText = document.getElementById('floatGroup').classList.contains('open') ? '✕' : '☰';
+    }
+  </script>
+  `;
+}
+
+// --- 4. Worker Logic ---
+
+export default {
+  async fetch(request, env) {
+    try {
+      return await handleRequest(request, env);
+    } catch (e) {
+      return new Response(`<h1>Error</h1><pre>${e.stack || e.message}</pre><p>Check KV Binding: CAT_KV</p>`, { headers: { 'Content-Type': 'text/html' } });
+    }
+  },
+};
+
+async function handleRequest(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+
+  if (!env.CAT_KV) throw new Error("CAT_KV binding missing.");
+
+  // Load Config
+  let config = await env.CAT_KV.get(CONFIG_KEY, 'json');
+  if (!config) {
+    const envCats = (env.CAT_NAMES || 'My Cat').split(',').map(s => s.trim()).filter(s => s);
+    config = { title_zh: DEFAULT_TITLE_ZH, title_en: DEFAULT_TITLE_EN, favicon: DEFAULT_FAVICON, cats: envCats };
+  }
+
+  const adminUser = env.ADMIN_USER || 'admin';
+  const adminPass = env.ADMIN_PASS || 'password';
+
+  // Routes
+  if (path === '/login' && request.method === 'GET') {
+    return new Response(renderLogin(config), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+  }
+
+  if (path === '/auth/login' && request.method === 'POST') {
+    const formData = await request.formData();
+    const user = formData.get('username');
+    const pass = formData.get('password');
+    if (user === adminUser && pass === adminPass) {
+      const token = safeBtoa(`${user}:${pass}`);
+      const headers = new Headers();
+      headers.append('Set-Cookie', `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; Max-Age=604800; SameSite=Lax`);
+      headers.append('Location', '/add');
+      return new Response(null, { status: 302, headers });
+    }
+    return Response.redirect(url.origin + '/login?error=1', 302);
+  }
+
+  if (path === '/logout') {
+    const headers = new Headers();
+    headers.append('Set-Cookie', `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0`);
+    headers.append('Location', '/');
+    return new Response(null, { status: 302, headers });
+  }
+
+  const protectedPaths = ['/add', '/api/save', '/api/delete', '/api/import', '/api/settings', '/api/rename_cat'];
+  if (protectedPaths.includes(path)) {
+    const cookie = request.headers.get('Cookie');
+    const validToken = safeBtoa(`${adminUser}:${adminPass}`);
+    if (!cookie || !cookie.includes(`${SESSION_COOKIE_NAME}=${validToken}`)) {
+      return Response.redirect(url.origin + '/login', 302);
+    }
+  }
+
+  if (path === '/api/save' && request.method === 'POST') {
+    const formData = await request.formData();
+    const id = formData.get('id');
+    const date = formData.get('date');
+    const weight = parseFloat(formData.get('weight'));
+    const name = formData.get('name');
+    const note = formData.get('note') || '';
+    const currentCat = formData.get('current_cat') || name;
+    if (!date || isNaN(weight)) return new Response('Invalid', { status: 400 });
+    let data = await getData(env);
+    if (id) {
+      const index = data.findIndex(item => item.id === id);
+      if (index !== -1) data[index] = { ...data[index], date, weight, name, note };
+    } else {
+      data.push({ id: Date.now().toString(), date, weight, name, note });
+    }
+    data.sort((a, b) => new Date(a.date) - new Date(b.date));
+    await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(data));
+    return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}`, 303);
+  }
+
+  if (path === '/api/delete' && request.method === 'POST') {
+    const formData = await request.formData();
+    const id = formData.get('id');
+    const currentCat = formData.get('current_cat');
+    let data = await getData(env);
+    data = data.filter(item => item.id !== id);
+    await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(data));
+    return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}`, 303);
+  }
+
+  if (path === '/api/rename_cat' && request.method === 'POST') {
+    const formData = await request.formData();
+    const oldName = formData.get('old_name');
+    const newName = formData.get('new_name');
+    if (oldName && newName && oldName !== newName) {
+        let newCats = config.cats.filter(c => c !== oldName);
+        if (!newCats.includes(newName)) newCats.push(newName);
+        config.cats = newCats;
+        await env.CAT_KV.put(CONFIG_KEY, JSON.stringify(config));
+        let data = await getData(env);
+        let updatedCount = 0;
+        data = data.map(record => {
+            if (record.name === oldName) { updatedCount++; return { ...record, name: newName }; }
+            return record;
+        });
+        if (updatedCount > 0) await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(data));
+    }
+    return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(newName)}`, 303);
+  }
+
+  if (path === '/api/import' && request.method === 'POST') {
+    const formData = await request.formData();
+    const file = formData.get('csv_file');
+    const currentCat = formData.get('target_name') || config.cats[0];
+    if (!file || typeof file === 'string') return new Response('File required', {status: 400});
+    const text = await file.text();
+    const lines = text.split(/\r?\n/);
+    let data = await getData(env);
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.toLowerCase().includes('date') || line.includes('日期')) continue;
+        const parts = line.split(',');
+        if (parts.length < 2) continue;
+        const date = parts[0].trim();
+        const weight = parseFloat(parts[1]);
+        if (!date || isNaN(weight)) continue;
+        let name = currentCat;
+        let note = '';
+        if (parts.length === 3) note = parts[2].trim();
+        else if (parts.length >= 4) { name = parts[2].trim() || currentCat; note = parts.slice(3).join(',').trim(); }
+        const existingIdx = data.findIndex(d => d.date === date && d.name === name);
+        if (existingIdx !== -1) data[existingIdx] = { ...data[existingIdx], weight, note };
+        else data.push({ id: Date.now().toString() + Math.random().toString().substr(2,5), date, weight, name, note });
+    }
+    data.sort((a, b) => new Date(a.date) - new Date(b.date));
+    await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(data));
+    return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}`, 303);
+  }
+
+  if (path === '/api/settings' && request.method === 'POST') {
+    const formData = await request.formData();
+    const newConfig = {
+        title_zh: formData.get('title_zh'), title_en: formData.get('title_en'), favicon: formData.get('favicon'),
+        cats: formData.get('cats_list').split(',').map(s => s.trim()).filter(s => s)
+    };
+    await env.CAT_KV.put(CONFIG_KEY, JSON.stringify(newConfig));
+    return Response.redirect(`${url.origin}/add`, 303);
+  }
+
+  const data = await getData(env);
+  const cookie = request.headers.get('Cookie');
+  const validToken = safeBtoa(`${adminUser}:${adminPass}`);
+  const isLoggedIn = cookie && cookie.includes(`${SESSION_COOKIE_NAME}=${validToken}`);
+  const pageType = path === '/add' ? 'admin' : 'home';
+
+  return new Response(renderHTML(data, pageType, config, isLoggedIn), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+}
+
+async function getData(env) {
+  const json = await env.CAT_KV.get(STORAGE_KEY);
+  return json ? JSON.parse(json) : [];
+}
+
+// --- 5. Render Functions ---
+
+function getFloatMenuHTML() {
+  return `
+    <div class="btn-float-group" id="floatGroup">
+        <button class="float-btn menu-trigger" id="menuTrigger" onclick="toggleFloatMenu()">☰</button>
+        <div class="float-actions">
+            <button id="langToggle" class="float-btn" onclick="toggleLang()">CN</button>
+            <button id="themeToggle" class="float-btn" onclick="toggleTheme()">☀️</button>
+        </div>
+    </div>
+  `;
+}
+
+function getFooterHTML() {
+  return `
+    <footer class="app-footer">
+        <div class="footer-left">© 2025 Purrfit</div>
+        <a href="${GITHUB_URL}" target="_blank" class="footer-link">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            <span id="footerGithub" style="margin-left: 5px;">Open Source</span>
+        </a>
+    </footer>
+  `;
+}
+
+function renderLogin(config) {
+  return `<!DOCTYPE html><html><head>${getHead(config)}${getCommonJs(config)}<title>Login</title></head><body class="login-body">
+    ${getFloatMenuHTML()}
+    <div class="card login-card">
+        <h1 data-i18n="login_title">${config.title_zh}</h1>
+        <div id="errMsg" class="err" style="display:none" data-i18n="login_err">Invalid credentials</div>
+        <form action="/auth/login" method="POST">
+            <input type="text" name="username" data-i18n="username" placeholder="Username" required>
+            <input type="password" name="password" data-i18n="password" placeholder="Password" required>
+            <button type="submit" class="login" data-i18n="login_btn">Login</button>
+        </form>
+        <a href="/" class="back" data-i18n="back_home">← Back</a>
+    </div>
+    <script>
+      window.onload = function() {
+        updatePageText();
+        if(window.location.search.includes('error=1')) document.getElementById('errMsg').style.display = 'block';
+      }
+    </script>
+    <div style="width:100%;max-width:380px">
+        ${getFooterHTML()}
+    </div>
+  </body></html>`;
+}
+
+function renderHTML(allData, page, config, isLoggedIn) {
+  const normalizedData = allData.map(item => ({ ...item, name: item.name || config.cats[0], note: item.note || '' }));
+  const safeData = JSON.stringify(normalizedData);
+  const safeConfig = JSON.stringify(config);
+  
+  const manifestUri = `data:application/manifest+json;charset=utf-8,${encodeURIComponent(JSON.stringify({
+    name: config.title_en,
+    short_name: "Purrfit",
+    start_url: "/",
+    display: "standalone",
+    background_color: "#fff9f5",
+    theme_color: "#ff6b6b",
+    icons: [{ src: config.favicon, sizes: "192x192", type: "image/png" }]
+  }))}`;
+
+  const switcher = `
+    <div class="cat-switcher">
+      <div class="curr-cat" onclick="toggleMenu()">
+        <span id="currCatName">Loading...</span>
+        <span id="arrowIcon" style="font-size:0.8rem; color:#ff6b6b; transition:0.2s">▼</span>
+      </div>
+      <div class="cat-list" id="catList"></div>
+    </div>
   `;
 
-  // 2. Define JS
-  const js = `
+  // Settings Modal
+  const settingsModal = `
+    <div id="settingsModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 style="margin:0" data-i18n="settings_title">Global Settings</h3>
+                <div class="close-icon" onclick="closeSettings()">×</div>
+            </div>
+            <form action="/api/settings" method="POST">
+                <label style="display:block;margin-bottom:5px;font-size:0.9rem;color:var(--text-sub)" data-i18n="lbl_title_zh">Title (ZH)</label>
+                <input type="text" name="title_zh" value="${config.title_zh}" required>
+                <label style="display:block;margin-bottom:5px;font-size:0.9rem;color:var(--text-sub)" data-i18n="lbl_title_en">Title (EN)</label>
+                <input type="text" name="title_en" value="${config.title_en}" required>
+                <label style="display:block;margin-bottom:5px;font-size:0.9rem;color:var(--text-sub)" data-i18n="lbl_favicon">Favicon URL</label>
+                <input type="text" name="favicon" value="${config.favicon}" required>
+                <label style="display:block;margin-bottom:5px;font-size:0.9rem;color:var(--text-sub)" data-i18n="lbl_cats">Manage Cats</label>
+                <div id="catTags" class="tags-container">
+                    <input type="text" id="catInput" class="tag-input" data-i18n="add_cat_placeholder" placeholder="Add...">
+                </div>
+                <input type="hidden" name="cats_list" id="catsListInput">
+                <button type="submit" class="btn-main" data-i18n="save_settings">Save</button>
+                <button type="button" class="btn-cancel" style="display:block" onclick="closeSettings()" data-i18n="cancel_btn">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="renameModal" class="modal-overlay" style="z-index: 210;">
+        <div class="modal" style="max-width: 350px;">
+            <div class="modal-header">
+                <h3 style="margin:0" data-i18n="rename_title">Rename Cat</h3>
+                <div class="close-icon" onclick="closeRename()">×</div>
+            </div>
+            <p style="margin-bottom: 15px; color: var(--text-sub); font-size: 0.9rem;" data-i18n="rename_desc">Migrate history to new name.</p>
+            <input type="text" id="newCatNameInput" data-i18n="rename_placeholder" placeholder="New Name">
+            <button onclick="confirmRename()" class="btn-main" data-i18n="rename_btn">Confirm</button>
+        </div>
+    </div>
+
+    <form id="renameForm" action="/api/rename_cat" method="POST" style="display:none">
+        <input type="hidden" name="old_name" id="renameOld">
+        <input type="hidden" name="new_name" id="renameNew">
+    </form>
+  `;
+
+  let content = '';
+  const header = `
+    <div class="app-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:30px;gap:15px;">
+        <div style="flex-grow:1">
+             ${switcher}
+        </div>
+        <div>
+            ${getFloatMenuHTML()}
+        </div>
+    </div>
+  `;
+
+  if (page === 'home') {
+    const adminLink = isLoggedIn ? `<a href="/add" class="nav-link" data-i18n="admin_link">🔐 Dashboard</a>` : `<a href="/login" class="nav-link" data-i18n="login_link">👤 Login</a>`;
+    content = `
+      ${header}
+      <div class="card">
+        <h3>
+            <span><span data-i18n="trend">Weight Trend</span> <span id="trend"></span></span>
+            <div class="filters">
+                <button id="btn-3m" class="filter-btn" onclick="setFilter('3m')" data-i18n="filter_3m">3M</button>
+                <button id="btn-6m" class="filter-btn" onclick="setFilter('6m')" data-i18n="filter_6m">6M</button>
+                <button id="btn-all" class="filter-btn active" onclick="setFilter('all')" data-i18n="filter_all">All</button>
+            </div>
+        </h3>
+        <div id="chart" class="chart-box"></div>
+      </div>
+      <div class="card">
+        <h3 data-i18n="history">History</h3>
+        <div id="list"></div>
+      </div>
+      <div class="card nav-card">
+        ${adminLink}
+      </div>
+    `;
+  } else {
+    const today = new Date().toISOString().split('T')[0];
+    content = `
+      ${header}
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
+            <h3 style="margin:0" id="formTitle" data-i18n="new_record">New Record</h3>
+            <button onclick="openSettings()" class="filter-btn" data-i18n="settings_btn">⚙️ Settings</button>
+        </div>
+        <form action="/api/save" method="POST" id="editForm">
+          <input type="hidden" name="id" id="formId">
+          <input type="hidden" name="current_cat" value="${config.cats[0]}" id="currentCatInput">
+          <select name="name" id="catSelect" onchange="switchCat(this.value)" style="display:none">${config.cats.map(n=>`<option value="${n}">${n}</option>`).join('')}</select>
+          <div class="form-grid">
+            <input type="date" name="date" value="${today}" required>
+            <input type="number" name="weight" step="0.01" data-i18n="placeholder_weight" placeholder="Weight" required>
+          </div>
+          <input type="text" name="note" data-i18n="placeholder_note" placeholder="Note" maxlength="50">
+          <button type="submit" class="btn-main" id="submitBtn" data-i18n="add_btn">Add</button>
+          <button type="button" class="btn-cancel" id="cancelBtn" onclick="cancelEdit()" data-i18n="cancel_btn">Cancel</button>
+        </form>
+      </div>
+      <div class="card">
+        <h3>
+            <span data-i18n="manage">Manage</span>
+            <div class="filters">
+                <button id="btn-3m" class="filter-btn" onclick="setFilter('3m')" data-i18n="filter_3m">3M</button>
+                <button id="btn-6m" class="filter-btn" onclick="setFilter('6m')" data-i18n="filter_6m">6M</button>
+                <button id="btn-all" class="filter-btn active" onclick="setFilter('all')" data-i18n="filter_all">All</button>
+            </div>
+        </h3>
+        <div id="list"></div>
+        <div class="io-group">
+            <form action="/api/import" method="POST" enctype="multipart/form-data" style="flex:1">
+               <input type="hidden" name="target_name" id="importTargetCat">
+               <input type="file" name="csv_file" accept=".csv" onchange="submitImport(this)" style="display:none" id="importFile">
+               <button type="button" onclick="document.getElementById('importFile').click()" class="btn-io" data-i18n="import_btn">Import</button>
+            </form>
+            <button onclick="exportCSV()" class="btn-io" data-i18n="export_btn">Export</button>
+        </div>
+      </div>
+      <div class="card nav-card">
+        <a href="/" class="nav-link" data-i18n="back_home">🏠 Home</a>
+        <a href="/logout" class="nav-link logout-link" data-i18n="logout">🚫 Logout</a>
+      </div>
+      ${settingsModal}
+    `;
+  }
+
+  const mainScript = `
     <script>
       const rawData = ${safeData};
-      const catNames = ${safeCats};
+      const config = ${safeConfig};
+      let catNames = config.cats;
       const params = new URLSearchParams(window.location.search);
       let currentCat = params.get('cat') || catNames[0];
-      if(!catNames.includes(currentCat)) currentCat = catNames[0];
+      if(!catNames.includes(currentCat) && catNames.length > 0) currentCat = catNames[0];
       
       let isEditMode = false;
       let timeFilter = 'all';
+      let renameTargetIndex = -1;
 
       document.addEventListener('DOMContentLoaded', () => {
         renderApp();
@@ -355,9 +659,70 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
         const imp = document.getElementById('importTargetCat');
         if(imp) imp.value = currentCat;
         updatePageText();
+        if(document.getElementById('catTags')) initCatTags();
       });
       
       window.addEventListener('langChanged', () => { renderApp(); });
+
+      function openSettings() { document.getElementById('settingsModal').style.display = 'block'; }
+      function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
+      
+      // Rename Modal Logic
+      window.renameCat = (index) => {
+        renameTargetIndex = index;
+        const oldName = catNames[index];
+        document.getElementById('newCatNameInput').value = oldName;
+        document.getElementById('renameModal').style.display = 'block';
+      };
+
+      window.closeRename = () => {
+        document.getElementById('renameModal').style.display = 'none';
+        renameTargetIndex = -1;
+      };
+
+      window.confirmRename = () => {
+        if (renameTargetIndex === -1) return;
+        const newName = document.getElementById('newCatNameInput').value.trim();
+        const oldName = catNames[renameTargetIndex];
+        
+        if (newName && newName !== oldName) {
+            document.getElementById('renameOld').value = oldName;
+            document.getElementById('renameNew').value = newName;
+            document.getElementById('renameForm').submit();
+        }
+        closeRename();
+      };
+
+      function initCatTags() {
+        const container = document.getElementById('catTags');
+        const input = document.getElementById('catInput');
+        const hiddenInput = document.getElementById('catsListInput');
+        function renderTags() {
+            Array.from(container.getElementsByClassName('tag-chip')).forEach(el => el.remove());
+            catNames.forEach((cat, index) => {
+                const tag = document.createElement('div');
+                tag.className = 'tag-chip';
+                tag.innerHTML = \`
+                    <span>\${cat}</span>
+                    <div class="tag-actions">
+                        <span class="tag-icon" onclick="renameCat(\${index})">✎</span>
+                        <span class="tag-icon" onclick="removeCat(\${index})">×</span>
+                    </div>
+                \`;
+                container.insertBefore(tag, input);
+            });
+            hiddenInput.value = catNames.join(',');
+        }
+        window.removeCat = (index) => { if(confirm(t('remove_cat_confirm'))) { catNames.splice(index, 1); renderTags(); } };
+        input.addEventListener('keydown', (e) => {
+            if(e.key === 'Enter') {
+                e.preventDefault();
+                const val = input.value.trim();
+                if(val && !catNames.includes(val)) { catNames.push(val); input.value = ''; renderTags(); }
+            }
+        });
+        renderTags();
+      }
 
       function initTiltEffect() {
         if(window.matchMedia("(hover: none)").matches) return; 
@@ -410,7 +775,7 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
 
       function renderApp() {
         document.getElementById('currCatName').innerText = currentCat;
-        document.getElementById('catList').innerHTML = catNames.map(n => \`<div class="cat-tag \${n===currentCat?'active':''}" onclick="switchCat('\${n}')">\${n}</div>\`).join('');
+        document.getElementById('catList').innerHTML = config.cats.map(n => \`<div class="cat-tag \${n===currentCat?'active':''}" onclick="switchCat('\${n}')">\${n}</div>\`).join('');
         let catData = rawData.filter(d => d.name === currentCat);
         if (timeFilter !== 'all') {
             const now = new Date();
@@ -566,112 +931,6 @@ function renderHTML(allData, page, catNames, isLoggedIn) {
     </script>
   `;
 
-  // 3. Define Init Script
-  const themeInitScript = `
-    <script>
-      (function() {
-        const saved = localStorage.getItem('theme');
-        const sys = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        if (saved === 'dark' || (!saved && sys)) {
-          document.documentElement.classList.add('dark');
-        }
-      })();
-    </script>
-  `;
-
-  // 4. Content Variables
-  let content = '';
-  
-  // Button Group
-  const floatBtns = `
-    <div class="btn-float-group">
-        <button id="langToggle" class="float-btn" onclick="toggleLang()">CN</button>
-        <button id="themeToggle" class="float-btn" onclick="toggleTheme()">☀️</button>
-        <a href="${GITHUB_URL}" target="_blank" class="float-btn" title="GitHub"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></a>
-    </div>
-  `;
-
-  const switcher = `
-    <div class="cat-switcher">
-      <div class="curr-cat" onclick="toggleMenu()">
-        <span id="currCatName">Loading...</span>
-        <span id="arrowIcon" style="font-size:0.8rem; color:#ff6b6b; transition:0.2s">▼</span>
-      </div>
-      <div class="cat-list" id="catList"></div>
-    </div>
-  `;
-
-  if (page === 'home') {
-    const adminLink = isLoggedIn ? `<a href="/add" class="nav-link" data-i18n="admin_link">🔐 Dashboard</a>` : `<a href="/login" class="nav-link" data-i18n="login_link">👤 Login</a>`;
-    
-    content = `
-      ${floatBtns}
-      ${switcher}
-      <div class="card">
-        <h3>
-            <span><span data-i18n="trend">Weight Trend</span> <span id="trend"></span></span>
-            <div class="filters">
-                <button id="btn-3m" class="filter-btn" onclick="setFilter('3m')" data-i18n="filter_3m">3M</button>
-                <button id="btn-6m" class="filter-btn" onclick="setFilter('6m')" data-i18n="filter_6m">6M</button>
-                <button id="btn-all" class="filter-btn active" onclick="setFilter('all')" data-i18n="filter_all">All</button>
-            </div>
-        </h3>
-        <div id="chart" class="chart-box"></div>
-      </div>
-      <div class="card">
-        <h3 data-i18n="history">History</h3>
-        <div id="list"></div>
-      </div>
-      <div class="card nav-card">
-        ${adminLink}
-      </div>
-    `;
-  } else {
-    const today = new Date().toISOString().split('T')[0];
-    content = `
-      ${floatBtns}
-      ${switcher}
-      <div class="card">
-        <h3 id="formTitle" data-i18n="new_record">New Record</h3>
-        <form action="/api/save" method="POST" id="editForm">
-          <input type="hidden" name="id" id="formId">
-          <input type="hidden" name="current_cat" value="${allData.length>0?allData[0].name:''}" id="currentCatInput">
-          <select name="name" id="catSelect" onchange="switchCat(this.value)" style="display:none">${catNames.map(n=>`<option value="${n}">${n}</option>`).join('')}</select>
-          <div class="form-grid">
-            <input type="date" name="date" value="${today}" required>
-            <input type="number" name="weight" step="0.01" data-i18n="placeholder_weight" placeholder="Weight" required>
-          </div>
-          <input type="text" name="note" data-i18n="placeholder_note" placeholder="Note" maxlength="50">
-          <button type="submit" class="btn-main" id="submitBtn" data-i18n="add_btn">Add</button>
-          <button type="button" class="btn-cancel" id="cancelBtn" onclick="cancelEdit()" data-i18n="cancel_btn">Cancel</button>
-        </form>
-      </div>
-      <div class="card">
-        <h3>
-            <span data-i18n="manage">Manage</span>
-            <div class="filters">
-                <button id="btn-3m" class="filter-btn" onclick="setFilter('3m')" data-i18n="filter_3m">3M</button>
-                <button id="btn-6m" class="filter-btn" onclick="setFilter('6m')" data-i18n="filter_6m">6M</button>
-                <button id="btn-all" class="filter-btn active" onclick="setFilter('all')" data-i18n="filter_all">All</button>
-            </div>
-        </h3>
-        <div id="list"></div>
-        <div class="io-group">
-            <form action="/api/import" method="POST" enctype="multipart/form-data" style="flex:1">
-               <input type="hidden" name="target_name" id="importTargetCat">
-               <input type="file" name="csv_file" accept=".csv" onchange="submitImport(this)" style="display:none" id="importFile">
-               <button type="button" onclick="document.getElementById('importFile').click()" class="btn-io" data-i18n="import_btn">Import</button>
-            </form>
-            <button onclick="exportCSV()" class="btn-io" data-i18n="export_btn">Export</button>
-        </div>
-      </div>
-      <div class="card nav-card">
-        <a href="/" class="nav-link" data-i18n="back_home">🏠 Home</a>
-        <a href="/logout" class="nav-link logout-link" data-i18n="logout">🚫 Logout</a>
-      </div>
-    `;
-  }
-
-  // 5. Final Return
-  return `<!DOCTYPE html><html lang="zh-CN"><head><title>Cat Weight</title>${SHARED_HEAD}<link rel="manifest" href="${manifestUri}"><style>${css}</style></head><body><div class="container">${content}</div>${themeInitScript}${js}</body></html>`;
+  // Final Return
+  return `<!DOCTYPE html><html lang="zh-CN"><head><title>${config.title_en}</title>${getHead(config)}${getCommonJs(config)}<link rel="manifest" href="${manifestUri}"></head><body><div class="container">${content}${getFooterHTML()}</div>${mainScript}</body></html>`;
 }
