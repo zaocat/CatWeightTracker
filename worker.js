@@ -1,34 +1,33 @@
 /**
- * Cloudflare Worker - Purrfit (v20.17 UX Optimization)
- * 1. UX: "Rename Cat" now uses AJAX. It updates the name instantly WITHOUT reloading the page.
- * (Fixes the issue where unsaved Title changes were lost when renaming a cat).
- * 2. Config: Default ZH title updated to "Purrfit | 猫咪体重计".
- * 3. Base: v20.16 (Dark mode login fixed, Footer fixed, etc.)
+ * Cloudflare Worker - Purrfit (v21.7 Clean Polish)
+ * 1. Base: v21.1 (Clean GitHub Release, No Demo Mode, Custom Delete Modal).
+ * 2. Visual: Integrated v21.6 Glassmorphism Tooltip styles.
+ * - Frosted glass effect for chart tooltips.
+ * - Adaptive text colors for better readability in Light/Dark modes.
  */
 
 // ==========================================
-// 1. CONSTANTS & CORE LOGIC
+// 1. CONSTANTS & CONFIG
 // ==========================================
 const STORAGE_KEY = 'weights';
 const CONFIG_KEY = 'config';
 const SESSION_COOKIE_NAME = 'cat_session';
 const GITHUB_URL = 'https://github.com/zaocat/Purrfit';
 
-// 【配置】图标地址
+// Icon Configuration
 const ICON_URL = 'https://img.icons8.com/?size=100&id=ftgzqv4ry3uF&format=png&color=000000'; 
-
-const DEFAULT_TITLE_ZH = 'Purrfit | 猫咪体重计'; // Updated Default Title
+const DEFAULT_TITLE_ZH = 'Purrfit | 猫咪体重计';
 const DEFAULT_TITLE_EN = 'Purrfit';
 const DEFAULT_FAVICON = '/app-icon.png';
 
+// ==========================================
+// 2. MAIN REQUEST HANDLER
+// ==========================================
 async function handleRequest(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  // ============================================================
-  // 【修复逻辑】图标代理与 Manifest
-  // ============================================================
-
+  // --- A. Icon Proxy Logic ---
   if (path === '/app-icon.png') {
     try {
       const response = await fetch(ICON_URL);
@@ -36,15 +35,13 @@ async function handleRequest(request, env) {
       newHeaders.set('Access-Control-Allow-Origin', '*'); 
       newHeaders.set('Cache-Control', 'public, max-age=86400'); 
       newHeaders.set('Content-Type', 'image/png');
-      return new Response(response.body, {
-        status: response.status,
-        headers: newHeaders
-      });
+      return new Response(response.body, { status: response.status, headers: newHeaders });
     } catch (e) {
       return new Response('Icon Error', { status: 500 });
     }
   }
 
+  // --- B. Manifest Logic ---
   if (path === '/manifest.json') {
     let configTitle = "Purrfit";
     try {
@@ -60,33 +57,20 @@ async function handleRequest(request, env) {
       background_color: "#fff9f5",
       theme_color: "#ff6b6b",
       icons: [
-        {
-          src: "/app-icon.png",
-          sizes: "192x192",
-          type: "image/png",
-          purpose: "any maskable"
-        },
-        {
-          src: "/app-icon.png",
-          sizes: "512x512",
-          type: "image/png",
-          purpose: "any maskable"
-        }
+        { src: "/app-icon.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+        { src: "/app-icon.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }
       ]
     };
     return new Response(JSON.stringify(manifest), {
-      headers: { 
-        'Content-Type': 'application/manifest+json; charset=utf-8',
-        'Access-Control-Allow-Origin': '*'
-      }
+      headers: { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
     });
   }
 
-  // ============================================================
-  // 【业务逻辑】KV 数据与路由
-  // ============================================================
-
+  // --- C. Data Loading ---
   if (!env.CAT_KV) throw new Error("CAT_KV binding missing.");
+
+  const adminUser = env.ADMIN_USER || 'admin';
+  const adminPass = env.ADMIN_PASS || 'password';
 
   let config = await env.CAT_KV.get(CONFIG_KEY, 'json');
   let allData = [];
@@ -95,6 +79,7 @@ async function handleRequest(request, env) {
       if(raw) allData = JSON.parse(raw);
   } catch(e) {}
 
+  // Init Config if missing
   if (!config) {
     const envCats = (env.CAT_NAMES || 'My Cat').split(',').map(s => s.trim()).filter(s => s);
     config = { title_zh: DEFAULT_TITLE_ZH, title_en: DEFAULT_TITLE_EN, favicon: DEFAULT_FAVICON, cats: envCats };
@@ -104,18 +89,19 @@ async function handleRequest(request, env) {
       await env.CAT_KV.put(CONFIG_KEY, JSON.stringify(config));
   }
 
-  const adminUser = env.ADMIN_USER || 'admin';
-  const adminPass = env.ADMIN_PASS || 'password';
+  // --- D. Routes ---
 
-  // Routes
+  // Login Page
   if (path === '/login' && request.method === 'GET') {
     return new Response(renderLogin(config), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
   }
 
+  // Auth Handler
   if (path === '/auth/login' && request.method === 'POST') {
     const formData = await request.formData();
     const user = formData.get('username');
     const pass = formData.get('password');
+    
     if (user === adminUser && pass === adminPass) {
       const token = safeBtoa(`${user}:${pass}`);
       const headers = new Headers();
@@ -126,6 +112,7 @@ async function handleRequest(request, env) {
     return Response.redirect(url.origin + '/login?error=1', 302);
   }
 
+  // Logout
   if (path === '/logout') {
     const headers = new Headers();
     headers.append('Set-Cookie', `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0`);
@@ -133,6 +120,7 @@ async function handleRequest(request, env) {
     return new Response(null, { status: 302, headers });
   }
 
+  // Reset (Admin Only)
   if (path === '/api/reset' && request.method === 'POST') {
       const cookie = request.headers.get('Cookie');
       const validToken = safeBtoa(`${adminUser}:${adminPass}`);
@@ -142,20 +130,25 @@ async function handleRequest(request, env) {
       return Response.redirect(url.origin + '/add', 302);
   }
 
+  // Auth Check Middleware
+  const cookie = request.headers.get('Cookie');
+  const validToken = safeBtoa(`${adminUser}:${adminPass}`);
+  const isLoggedIn = cookie && cookie.includes(`${SESSION_COOKIE_NAME}=${validToken}`);
+
   const protectedPaths = ['/add', '/api/save', '/api/delete', '/api/import', '/api/settings', '/api/rename_cat'];
   if (protectedPaths.includes(path)) {
-    const cookie = request.headers.get('Cookie');
-    const validToken = safeBtoa(`${adminUser}:${adminPass}`);
-    if (!cookie || !cookie.includes(`${SESSION_COOKIE_NAME}=${validToken}`)) {
+    if (!isLoggedIn) {
       return Response.redirect(url.origin + '/login', 302);
     }
   }
 
+  // Redirect to first cat
   if (path === '/add' && !url.searchParams.get('cat')) {
       const defaultCat = config.cats[0] || 'My Cat';
       return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(defaultCat)}`, 302);
   }
 
+  // Save Record
   if (path === '/api/save' && request.method === 'POST') {
     const formData = await request.formData();
     const id = formData.get('id');
@@ -171,17 +164,22 @@ async function handleRequest(request, env) {
     }
     if (!date || isNaN(weight)) return new Response('Invalid', { status: 400 });
     
+    let newItem = { id: Date.now().toString(), date, weight, name: currentCat, note };
+
     if (id) {
       const index = allData.findIndex(item => item.id === id);
-      if (index !== -1) allData[index] = { ...allData[index], date, weight, name: currentCat, note };
+      if (index !== -1) {
+          allData[index] = { ...newItem, id: id }; 
+      }
     } else {
-      allData.push({ id: Date.now().toString(), date, weight, name: currentCat, note });
+      allData.push(newItem);
     }
     allData.sort((a, b) => new Date(a.date) - new Date(b.date));
     await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(allData));
     return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}&t=${Date.now()}`, 303);
   }
 
+  // Delete Record
   if (path === '/api/delete' && request.method === 'POST') {
     const formData = await request.formData();
     const id = formData.get('id');
@@ -191,7 +189,7 @@ async function handleRequest(request, env) {
     return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}&t=${Date.now()}`, 303);
   }
 
-  // --- UPDATED RENAME LOGIC: SUPPORT JSON FOR AJAX ---
+  // Rename Cat
   if (path === '/api/rename_cat' && request.method === 'POST') {
     const formData = await request.formData();
     const oldName = formData.get('old_name');
@@ -211,16 +209,15 @@ async function handleRequest(request, env) {
         if (updatedCount > 0) await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(allData));
     }
     
-    // NEW: Check if client asked for JSON (AJAX)
     if (request.headers.get('Accept') === 'application/json') {
         return new Response(JSON.stringify({ status: 'ok', newName: newName }), {
             headers: { 'Content-Type': 'application/json' }
         });
     }
-
     return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(newName)}&t=${Date.now()}`, 303);
   }
 
+  // Import
   if (path === '/api/import' && request.method === 'POST') {
     const formData = await request.formData();
     const file = formData.get('csv_file');
@@ -246,14 +243,17 @@ async function handleRequest(request, env) {
             await env.CAT_KV.put(CONFIG_KEY, JSON.stringify(config));
         }
         const existingIdx = allData.findIndex(d => d.date === date && d.name === name);
+        let newItem = { id: Date.now().toString() + Math.random().toString().substr(2,5), date, weight, name, note };
+        
         if (existingIdx !== -1) allData[existingIdx] = { ...allData[existingIdx], weight, note };
-        else allData.push({ id: Date.now().toString() + Math.random().toString().substr(2,5), date, weight, name, note });
+        else allData.push(newItem);
     }
     allData.sort((a, b) => new Date(a.date) - new Date(b.date));
     await env.CAT_KV.put(STORAGE_KEY, JSON.stringify(allData));
     return Response.redirect(`${url.origin}/add?cat=${encodeURIComponent(currentCat)}&t=${Date.now()}`, 303);
   }
 
+  // Settings
   if (path === '/api/settings' && request.method === 'POST') {
     const formData = await request.formData();
     const rawCats = formData.get('cats_list').split(',').map(s => s.trim()).filter(s => s);
@@ -266,9 +266,6 @@ async function handleRequest(request, env) {
     return Response.redirect(`${url.origin}/add?t=${Date.now()}`, 303);
   }
 
-  const cookie = request.headers.get('Cookie');
-  const validToken = safeBtoa(`${adminUser}:${adminPass}`);
-  const isLoggedIn = cookie && cookie.includes(`${SESSION_COOKIE_NAME}=${validToken}`);
   const pageType = path === '/add' ? 'admin' : 'home';
   let currentCatName = url.searchParams.get('cat') || config.cats[0];
   if (config.cats.length > 0 && !config.cats.includes(currentCatName)) currentCatName = config.cats[0];
@@ -277,7 +274,7 @@ async function handleRequest(request, env) {
 }
 
 // ==========================================
-// 2. UTILITY & HTML GENERATORS
+// 3. UTILITY FUNCTIONS
 // ==========================================
 
 function safeBtoa(str) {
@@ -300,13 +297,17 @@ function getI18nData() {
       empty_chart: "此时段无数据", empty_list: "暂无记录", confirm_delete: "确定要删除这条记录吗？", confirm_import: "导入将合并数据，重复日期将被覆盖。继续？",
       no_data_export: "没有数据可导出", placeholder_weight: "体重 (kg)", placeholder_note: "备注 (例如：换粮，生病)", unit: "kg",
       settings_btn: "⚙️ 网站设置", settings_title: "⚙️ 全局设置", lbl_title_zh: "中文标题", lbl_title_en: "英文标题", lbl_favicon: "图标 URL",
-      lbl_cats: "猫咪管理", add_cat_placeholder: "输入名字...", save_settings: "💾 保存设置",
+      lbl_cats: "猫咪管理", add_cat_placeholder: "输入名字回车或点加号", save_settings: "💾 保存设置",
       footer_github: "GitHub 开源",
       rename_title: "✏️ 重命名猫咪", rename_desc: "将同步更新该猫咪的所有历史数据。", rename_placeholder: "新名字", rename_btn: "确认修改",
       reset_btn: "⚠️ 重置所有数据", reset_confirm: "警告：这将清空所有配置和体重记录，且无法恢复！确定要重置吗？",
       delete_cat_title: "🗑️ 删除猫咪", delete_cat_desc: "确定要删除这个标签吗？(需点击保存生效)", delete_confirm_btn: "确定删除",
       prev_page: "上一页", next_page: "下一页", switched_to: "已切换到：",
-      refresh_tip: "💡 若数据未显示，请点击顶部重新选择"
+      refresh_tip: "💡 若数据未显示，请点击顶部重新选择",
+      // NEW
+      delete_record_title: "🗑️ 删除记录",
+      delete_record_desc: "确定要删除这条体重记录吗？此操作无法撤销。",
+      delete_record_btn: "确定删除"
     },
     en: {
       login_title: "Admin Login", username: "Username", password: "Password", login_btn: "Login", back_home: "← Back to Home", login_err: "Invalid credentials",
@@ -316,14 +317,18 @@ function getI18nData() {
       empty_chart: "No data in this period", empty_list: "No records found", confirm_delete: "Delete this record?", confirm_import: "Import will merge data. Overwrite duplicates?",
       no_data_export: "No data to export", placeholder_weight: "Weight (kg)", placeholder_note: "Note (e.g. diet change)", unit: "kg",
       settings_btn: "⚙️ Settings", settings_title: "⚙️ Global Settings", lbl_title_zh: "CN Title", lbl_title_en: "EN Title", lbl_favicon: "Favicon URL",
-      lbl_cats: "Manage Cats", add_cat_placeholder: "Type name...", save_settings: "💾 Save Settings",
+      lbl_cats: "Manage Cats", add_cat_placeholder: "Enter name & press Enter", save_settings: "💾 Save Settings",
       footer_github: "Open Source",
       rename_title: "✏️ Rename Cat", rename_desc: "This will update all historical records.", rename_placeholder: "New Name", rename_btn: "Confirm",
       remove_cat_confirm: "Remove this cat tag? (Data remains but hidden)",
       reset_btn: "⚠️ Factory Reset", reset_confirm: "WARNING: This will wipe ALL data and configs permanently! Are you sure?",
       delete_cat_title: "🗑️ Delete Cat", delete_cat_desc: "Remove this tag? Data remains but will be hidden.", delete_confirm_btn: "Confirm Delete",
       prev_page: "Prev", next_page: "Next", switched_to: "Switched to: ",
-      refresh_tip: "💡 Data hidden? Re-select cat above"
+      refresh_tip: "💡 Data hidden? Re-select cat above",
+      // NEW
+      delete_record_title: "🗑️ Delete Record",
+      delete_record_desc: "Are you sure? This cannot be undone.",
+      delete_record_btn: "Delete"
     }
   };
 }
@@ -335,20 +340,29 @@ function getCss() {
         --bg-grad: linear-gradient(135deg, #fff9f5 0%, #fdfbf7 100%); 
         --text: #2d3436; --text-sub: #636e72; --card-bg: rgba(255, 255, 255, 0.95); 
         --border: #f1f2f6; --input-bg: #fdfdfd; --grid: #f1f2f6; 
-        --shadow: rgba(0,0,0,0.06); --tooltip-bg: rgba(45, 52, 54, 0.95); 
+        --shadow: rgba(0,0,0,0.06); 
+        /* UPDATED LIGHT MODE TOOLTIP (GLOW & TRANSPARENCY) */
+        --tooltip-bg: rgba(255, 255, 255, 0.65); /* More transparent for frosted effect */
+        --tooltip-text: #2d3436;
+        --tooltip-note: #e17055; /* Darker orange/red for readability on light glass */
+
         --primary: #ff6b6b; --primary-grad: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%); 
         --dot-fill: #fff;
         --pill-inactive-bg: #f5f6fa; --pill-inactive-text: #636e72;
-        /* Default Light Mode Glow (Reddish) */
         --glow-color: rgba(255, 107, 107, 0.08);
     }
     html.dark { 
         --bg-grad: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); 
         --text: #f1f5f9; --text-sub: #94a3b8; --card-bg: rgba(30, 41, 59, 0.85); 
         --border: #334155; --input-bg: #1e293b; --grid: #334155; 
-        --shadow: rgba(0,0,0,0.4); --tooltip-bg: rgba(0, 0, 0, 0.95); --dot-fill: #1e293b;
+        --shadow: rgba(0,0,0,0.4); 
+        /* UPDATED DARK MODE TOOLTIP */
+        --tooltip-bg: rgba(20, 20, 20, 0.65); 
+        --tooltip-text: #f1f5f9;
+        --tooltip-note: #ffeaa7;
+
+        --dot-fill: #1e293b;
         --pill-inactive-bg: #1e293b; --pill-inactive-text: #94a3b8;
-        /* Dark Mode Glow (Subtle White/Light) */
         --glow-color: rgba(255, 255, 255, 0.06);
     }
     html, body { height: 100%; margin: 0; padding: 0; overflow-x: hidden; }
@@ -446,15 +460,33 @@ function getCss() {
     .grid { stroke: var(--grid); stroke-dasharray: 4; }
     .area-fill { fill: url(#gradientFill); opacity: 0.3; }
     
-    /* Tooltip */
-    .chart-tooltip { position: absolute; top: 0; left: 0; background: var(--tooltip-bg); color: white; padding: 10px 14px; border-radius: 12px; font-size: 0.9rem; pointer-events: none; opacity: 0; transition: opacity 0.2s; transform: translate(-50%, -115%); z-index: 10000; box-shadow: 0 5px 15px rgba(0,0,0,0.3); text-align: left; min-width: 120px; }
+    /* Tooltip - GLASSMORPHISM */
+    .chart-tooltip { 
+        position: absolute; top: 0; left: 0; 
+        background: var(--tooltip-bg); 
+        color: var(--tooltip-text); 
+        padding: 10px 14px; border-radius: 12px; font-size: 0.9rem; 
+        pointer-events: none; opacity: 0; transition: opacity 0.2s; 
+        transform: translate(-50%, -115%); z-index: 10000; 
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1); 
+        text-align: left; min-width: 120px;
+        backdrop-filter: blur(12px); 
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--border);
+    }
     .chart-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border-width: 6px; border-style: solid; border-color: var(--tooltip-bg) transparent transparent transparent; transition: left 0.2s; }
     .chart-tooltip.shift-left { transform: translate(-90%, -115%); }
     .chart-tooltip.shift-left::after { left: 90%; }
     .chart-tooltip.shift-right { transform: translate(-10%, -115%); }
     .chart-tooltip.shift-right::after { left: 10%; }
     .tooltip-date { font-size: 0.8rem; opacity: 0.8; margin-bottom: 4px; }
-    .tooltip-note { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.2); color: #ffeaa7; font-size: 0.85rem; line-height: 1.4; }
+    /* ADAPTIVE NOTE COLOR */
+    .tooltip-note { 
+        margin-top: 6px; padding-top: 6px; 
+        border-top: 1px solid var(--border); 
+        color: var(--tooltip-note); 
+        font-size: 0.85rem; line-height: 1.4; 
+    }
 
     /* List */
     .item { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border); }
@@ -466,7 +498,8 @@ function getCss() {
     .btn-icon { width: 36px; height: 36px; border-radius: 12px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; transition: 0.2s; }
     .btn-icon:hover { transform: scale(1.1); }
     .btn-edit { background: var(--border); color: var(--text); } 
-    .btn-del { background: rgba(255, 118, 117, 0.15); color: #d63031; }
+    /* MODIFIED: btn-del styling */
+    .btn-del { background: rgba(255, 118, 117, 0.15); color: #d63031; font-weight: bold; }
     .empty { text-align: center; padding: 60px 0; color: var(--text-sub); font-style: italic; font-size: 1.1rem; }
     .pagination { display: flex; justify-content: center; align-items: center; gap: 20px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
     .page-btn { padding: 8px 24px; border-radius: 12px; border: 1px solid var(--border); background: var(--card-bg); cursor: pointer; color: var(--text-sub); font-size: 0.95rem; transition: 0.2s; font-weight: 700; }
@@ -490,7 +523,8 @@ function getCss() {
     .tag-icon { cursor: pointer; opacity: 0.9; font-size: 0.9rem; display: flex; align-items: center; color: white; } 
     .tag-icon:hover { transform: scale(1.2); }
     .tag-input-group { flex-grow: 1; display: flex; align-items: center; gap: 5px; }
-    .tag-input { border: none !important; box-shadow: none !important; background: transparent !important; padding: 5px !important; margin: 0 !important; }
+    .tag-input { border: none !important; border-bottom: 2px solid var(--border) !important; box-shadow: none !important; background: transparent !important; padding: 5px !important; margin: 0 !important; border-radius: 0 !important; opacity: 0.7; transition: all 0.2s; }
+    .tag-input:focus { opacity: 1; border-color: var(--primary) !important; }
     .tag-add-btn { background: var(--primary); color: white; border: none; width: 32px; height: 32px; border-radius: 10px; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
     .tag-add-btn:hover { transform: scale(1.1); }
     .btn-danger { background: rgba(255, 118, 117, 0.15); color: #d63031; border: none; width: 100%; margin-top: 15px; padding: 12px; border-radius: 12px; cursor: pointer; font-weight: bold; transition: 0.2s; }
@@ -505,26 +539,12 @@ function getCss() {
     .login-body { display: flex; justify-content: center; align-items: center; min-height: 100vh; flex-direction: column; background: var(--bg-grad); margin: 0; }
     .login-card { text-align: center; width: 100%; max-width: 400px; margin: 20px; padding: 50px 40px; border-radius: 32px; background: var(--card-bg); box-shadow: 0 20px 60px rgba(0,0,0,0.1); border: 1px solid var(--border); backdrop-filter: blur(15px); }
     .login-card h1 { font-size: 2.2rem; margin-bottom: 35px; background: var(--primary-grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; }
-    
-    /* Login Inputs */
-    .login-card input { 
-        padding: 16px; 
-        font-size: 1rem; 
-        margin-bottom: 20px; 
-        border-radius: 14px; 
-        background: var(--input-bg); 
-        color: var(--text); 
-        border: 1px solid transparent; 
-    }
-    .login-card input:focus { 
-        background: var(--input-bg); 
-        border-color: var(--primary); 
-        box-shadow: 0 4px 15px rgba(255,107,107,0.15); 
-    }
+    .login-card input { padding: 16px; font-size: 1rem; margin-bottom: 20px; border-radius: 14px; background: var(--input-bg); color: var(--text); border: 1px solid transparent; }
+    .login-card input:focus { background: var(--input-bg); border-color: var(--primary); box-shadow: 0 4px 15px rgba(255,107,107,0.15); }
     .login-card button { margin-top: 10px; padding: 18px; font-size: 1.1rem; border-radius: 14px; }
-    .login-card .back { margin-top: 30px; font-size: 0.9rem; opacity: 0.7; }
+    .login-card .back { display: inline-block; margin-top: 25px; font-size: 0.9rem; opacity: 0.7; color: var(--text-sub); text-decoration: none; transition: 0.2s; }
+    .login-card .back:hover { color: var(--primary); opacity: 1; transform: translateX(-3px); }
 
-    /* Toast */
     .toast { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); color: white; padding: 12px 24px; border-radius: 50px; font-size: 0.95rem; z-index: 2000; animation: floatUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: none; backdrop-filter: blur(8px); box-shadow: 0 10px 30px rgba(0,0,0,0.3); font-weight: 600; letter-spacing: 0.5px; }
     @keyframes floatUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
   </style>
@@ -668,6 +688,22 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
         </div>
     </div>`;
 
+  // === NEW: DELETE RECORD MODAL ===
+  const deleteRecordModal = `
+    <div id="deleteRecordModal" class="modal-overlay" style="z-index: 220;">
+        <div class="modal" style="max-width: 350px; text-align: center;">
+            <div style="font-size: 3rem; margin-bottom: 10px;">🗑️</div>
+            <h3 style="margin:0 0 10px 0" data-i18n="delete_record_title">Delete Record</h3>
+            <p style="margin-bottom: 20px; color: var(--text-sub); font-size: 0.95rem;" data-i18n="delete_record_desc">Are you sure?</p>
+            <button onclick="window.confirmDeleteRecord()" class="btn-main" style="background:#ff7675; margin-bottom: 10px;" data-i18n="delete_record_btn">Delete</button>
+            <button onclick="window.closeDeleteRecord()" class="btn-cancel" data-i18n="cancel_btn">Cancel</button>
+        </div>
+    </div>
+    <form id="deleteRecordForm" action="/api/delete" method="POST" style="display:none">
+        <input type="hidden" name="id" id="deleteRecordId">
+        <input type="hidden" name="current_cat" id="deleteRecordCat">
+    </form>`;
+
   let content = `
     <div class="top-controls">
         <button class="control-btn" id="langToggle" onclick="window.toggleLang()">CN</button>
@@ -746,7 +782,7 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
     ? `<a href="/" class="nav-link" data-i18n="back_home">🏠 Home</a><a href="/logout" class="nav-link logout-link" data-i18n="logout">🚫 Logout</a>`
     : (isLoggedIn ? `<a href="/add" class="nav-link" data-i18n="admin_link">🔐 Dashboard</a>` : `<a href="/login" class="nav-link" data-i18n="login_link">👤 Login</a>`);
   content += `<div class="card nav-card">${navLink}</div>`;
-  content += settingsModal + renameModal + deleteCatModal;
+  content += settingsModal + renameModal + deleteCatModal + deleteRecordModal; // Added new modal here
   
   // MOVED TOOLTIP OUTSIDE CONTAINER
   const tooltipDiv = `<div id="chartTooltip" class="chart-tooltip"></div>`;
@@ -793,6 +829,7 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
             const key = el.getAttribute('data-i18n');
             if(i18nData[curLang][key]) {
                 if(el.tagName === 'INPUT') el.placeholder = i18nData[curLang][key];
+                else if(el.innerHTML.includes('<br>')) el.innerHTML = i18nData[curLang][key]; // For HTML content
                 else el.innerText = i18nData[curLang][key];
             }
         });
@@ -829,37 +866,30 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
       window.renameCat = function(index) { renameTargetIndex = index; document.getElementById('newCatNameInput').value = catNames[index]; document.getElementById('renameModal').style.display = 'block'; };
       window.closeRename = function() { document.getElementById('renameModal').style.display = 'none'; renameTargetIndex = -1; };
       
-      // === IMPROVED: AJAX RENAME (NO RELOAD) ===
+      // AJAX Rename
       window.confirmRename = async function() {
         if (renameTargetIndex === -1) return;
         const newName = document.getElementById('newCatNameInput').value.trim();
         const oldName = catNames[renameTargetIndex];
         
         if (newName && newName !== oldName) { 
-            // Create FormData for AJAX
             const formData = new FormData();
             formData.append('old_name', oldName);
             formData.append('new_name', newName);
             
             try {
-                // Send AJAX request
                 const response = await fetch('/api/rename_cat', {
                     method: 'POST',
-                    headers: { 'Accept': 'application/json' }, // Ask for JSON
+                    headers: { 'Accept': 'application/json' },
                     body: formData
                 });
                 
                 if (response.ok) {
-                    // Update Local State instantly
                     catNames[renameTargetIndex] = newName;
                     if (currentCat === oldName) currentCat = newName;
-                    
-                    // Update UI components
-                    window.initCatTags(); // Update chips in settings
-                    window.renderApp();   // Update main dropdown
+                    window.initCatTags(); 
+                    window.renderApp();   
                     window.showToast("Renamed successfully");
-                    
-                    // Close rename modal, BUT KEEP SETTINGS OPEN
                     window.closeRename();
                 } else {
                     alert("Error renaming cat");
@@ -881,6 +911,24 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
           window.initCatTags(); 
           window.closeDeleteCatModal(); 
       };
+      
+      // === NEW: CUSTOM DELETE RECORD MODAL LOGIC ===
+      window.promptDeleteRecord = function(id) {
+          // Set values in the hidden global form
+          document.getElementById('deleteRecordId').value = id;
+          document.getElementById('deleteRecordCat').value = currentCat;
+          // Show the modal
+          document.getElementById('deleteRecordModal').style.display = 'block';
+      };
+
+      window.closeDeleteRecord = function() {
+          document.getElementById('deleteRecordModal').style.display = 'none';
+      };
+
+      window.confirmDeleteRecord = function() {
+          // Submit the hidden form
+          document.getElementById('deleteRecordForm').submit();
+      };
 
       window.initCatTags = function() {
         const container = document.getElementById('catTags');
@@ -894,7 +942,7 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
                 tag.innerHTML = \`<span>\${cat}</span><div class="tag-actions"><span class="tag-icon" onclick="renameCat(\${index})">✏️</span><span class="tag-icon" onclick="removeCat(\${index})">✕</span></div>\`;
                 container.insertBefore(tag, inputGroup);
             });
-            hiddenInput.value = catNames.join(','); // Fix: ensure input updated
+            hiddenInput.value = catNames.join(','); 
         }
         window.addTagFromInput = function() { const input = document.getElementById('catInput'); const val = input.value.trim(); if(val && !catNames.includes(val)) { catNames.push(val); input.value = ''; renderTags(); } hiddenInput.value = catNames.join(','); };
         const input = document.getElementById('catInput'); const newClone = input.cloneNode(true); input.parentNode.replaceChild(newClone, input);
@@ -908,11 +956,8 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
         const catInput = document.getElementById('currentCatInput'); if(catInput) catInput.value = name;
         const url = new URL(window.location); url.searchParams.set('cat', name); window.history.replaceState({}, '', url);
         const imp = document.getElementById('importTargetCat'); if(imp) imp.value = currentCat;
-        
-        // Auto-collapse menu
         const headerCard = document.querySelector('.cat-header-card');
         if(headerCard) headerCard.classList.remove('open');
-        
         window.renderApp();
         window.showToast(window.t('switched_to') + name);
       };
@@ -927,7 +972,6 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
                 const rect = card.getBoundingClientRect();
                 const x = e.clientX - rect.left; 
                 const y = e.clientY - rect.top;
-                // GLOW LOGIC: Update CSS variables for radial gradient position
                 card.style.setProperty('--mouse-x', \`\${x}px\`);
                 card.style.setProperty('--mouse-y', \`\${y}px\`);
                 
@@ -969,20 +1013,17 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
         setTimeout(window.initTiltEffect, 50);
       };
 
-      // UPDATED TOOLTIP LOGIC (FIXED POSITIONING & SCROLL)
       window.showTooltip = function(el, weight, date, noteEncoded) {
         const tip = document.getElementById('chartTooltip'); if(!tip) return;
         const note = decodeURIComponent(noteEncoded);
         const noteHtml = note ? \`<div class="tooltip-note">📝 \${note}</div>\` : '';
-        
-        // Calculate Position based on Screen Coordinates
+        const box = document.getElementById('chart');
         const rect = el.getBoundingClientRect();
         const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
         const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
         
         tip.className = 'chart-tooltip';
         
-        // Edge detection relative to viewport width
         const ratio = rect.left / window.innerWidth;
         if (ratio > 0.8) {
             tip.classList.add('shift-left');
@@ -991,8 +1032,6 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
         }
         
         tip.innerHTML = \`<div style="font-size:1.1rem;font-weight:bold">\${weight} <span style="font-size:0.8rem">\${window.t('unit')}</span></div><div class="tooltip-date">\${date}</div>\${noteHtml}\`;
-        
-        // Absolute position on page
         tip.style.left = (rect.left + scrollLeft + rect.width / 2) + 'px';
         tip.style.top = (rect.top + scrollTop + rect.height / 2) + 'px';
         tip.style.opacity = 1;
@@ -1000,7 +1039,6 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
       
       window.hideTooltip = function() { const tip = document.getElementById('chartTooltip'); if(tip) tip.style.opacity = 0; };
 
-      // UPDATED CHART LOGIC
       window.renderChart = function(data) {
         const box = document.getElementById('chart'); if(!box) return;
         if(data.length < 1) { box.innerHTML = \`<div class="empty">\${window.t('empty_chart')}</div>\`; return; }
@@ -1060,11 +1098,7 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
           const actions = isAdmin ? \`
             <div class="actions">
               <button class="btn-icon btn-edit" onclick='window.startEdit(\${JSON.stringify(item)})'>✏️</button>
-              <form action="/api/delete" method="POST" onsubmit="return confirm('\${window.t('confirm_delete')}')">
-                <input type="hidden" name="id" value="\${item.id}">
-                <input type="hidden" name="current_cat" value="\${currentCat}">
-                <button class="btn-icon btn-del">🗑️</button>
-              </form>
+              <button class="btn-icon btn-del" onclick="window.promptDeleteRecord('\${item.id}')">✕</button>
             </div>\` : '';
           return \`<div class="item"><div class="item-l"><div class="w-val">\${item.weight} <span style="font-size:0.8rem;font-weight:400;color:var(--text-sub)">\${window.t('unit')}</span></div><div class="w-date">\${item.date}</div>\${note}</div>\${actions}</div>\`;
         }).join('');
@@ -1144,7 +1178,7 @@ function renderHTML(allData, page, config, isLoggedIn, currentCatName) {
 // ==========================================
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
       return await handleRequest(request, env);
     } catch (e) {
