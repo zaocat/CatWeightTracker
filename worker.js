@@ -16,7 +16,7 @@ const GITHUB_URL = 'https://github.com/zaocat/Purrfit';
 // 【配置】图标地址
 const ICON_URL = 'https://img.icons8.com/?size=100&id=ftgzqv4ry3uF&format=png&color=000000'; 
 
-const DEFAULT_TITLE_ZH = 'Purrfit 猫咪体重';
+const DEFAULT_TITLE_ZH = 'Purrfit  |  猫咪体重';
 const DEFAULT_TITLE_EN = 'Purrfit';
 const DEFAULT_FAVICON = '/app-icon.png';
 
